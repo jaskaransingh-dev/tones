@@ -4,7 +4,7 @@ class LocalStorage {
     static let shared = LocalStorage()
 
     private let fileManager = FileManager.default
-    private let documentsPath: URL
+    let documentsPath: URL
 
     private let chatsFileName = "chats.json"
     private let messagesFileName = "messages.json"

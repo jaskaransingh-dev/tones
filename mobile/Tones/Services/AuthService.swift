@@ -34,6 +34,40 @@ final class AuthService: NSObject, ObservableObject {
         controller.performRequests()
     }
 
+    func signInDemo() async throws {
+        isLoading = true
+        authError = nil
+
+        let demoId: String
+        if let existingId = keychain.getDemoId() {
+            demoId = existingId
+        } else {
+            demoId = UUID().uuidString.lowercased()
+            try keychain.saveDemoId(demoId)
+        }
+
+        let url = baseURL.appendingPathComponent("auth/demo")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["demo_id": demoId])
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
+                throw TonesAuthError(message: errorData.error)
+            }
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw TonesAuthError(message: "Demo login failed: \(body)")
+        }
+
+        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
+        try saveSession(loginResponse)
+        currentUser = loginResponse.user
+        isLoading = false
+    }
+
     private func handleAppleAuth(credential: ASAuthorizationAppleIDCredential) async throws {
         guard let identityToken = credential.identityToken,
               let tokenString = String(data: identityToken, encoding: .utf8) else {
@@ -114,7 +148,8 @@ final class AuthService: NSObject, ObservableObject {
         let (data, resp) = try await URLSession.shared.data(for: req)
 
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            try logout()
+            keychain.clearAll()
+            currentUser = nil
             return
         }
 
@@ -136,7 +171,7 @@ final class AuthService: NSObject, ObservableObject {
     }
 
     func logout() {
-        keychain.clear()
+        keychain.clearAll()
         currentUser = nil
     }
 

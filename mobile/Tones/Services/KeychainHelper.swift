@@ -8,6 +8,7 @@ class KeychainHelper {
     private let accessTokenKey = "accessToken"
     private let refreshTokenKey = "refreshToken"
     private let userKey = "currentUser"
+    private let demoIdKey = "demoId"
 
     func saveSession(_ session: TonesSession) throws {
         try save(session.accessToken, key: accessTokenKey)
@@ -37,6 +38,23 @@ class KeychainHelper {
         delete(key: accessTokenKey)
         delete(key: refreshTokenKey)
         delete(key: userKey)
+    }
+
+    func saveDemoId(_ id: String) throws {
+        try save(id, key: demoIdKey)
+    }
+
+    func getDemoId() -> String? {
+        return get(key: demoIdKey)
+    }
+
+    func clearDemoId() {
+        delete(key: demoIdKey)
+    }
+
+    func clearAll() {
+        clear()
+        clearDemoId()
     }
 
     private func save(_ value: String, key: String) throws {

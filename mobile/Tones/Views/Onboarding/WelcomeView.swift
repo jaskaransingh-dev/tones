@@ -52,6 +52,26 @@ struct WelcomeView: View {
                     }
                     .disabled(authService.isLoading)
 
+                    Button(action: signInDemo) {
+                        HStack {
+                            if authService.isLoading {
+                                ProgressView()
+                                    .tint(.black)
+                            } else {
+                                Image(systemName: "person.circle.fill")
+                                Text("Try Demo")
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.yellow.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .disabled(authService.isLoading)
+
                     if let error = authService.authError {
                         Text(error)
                             .font(.caption)
@@ -88,6 +108,16 @@ struct WelcomeView: View {
         Task {
             do {
                 try await authService.signInWithApple()
+            } catch {
+                authService.authError = error.localizedDescription
+            }
+        }
+    }
+
+    private func signInDemo() {
+        Task {
+            do {
+                try await authService.signInDemo()
             } catch {
                 authService.authError = error.localizedDescription
             }

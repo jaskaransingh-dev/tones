@@ -31,6 +31,9 @@ export default {
 			if (path === '/auth/apple' && method === 'POST') {
 				return await handleAppleAuth(request, env);
 			}
+			if (path === '/auth/demo' && method === 'POST') {
+				return await handleDemoAuth(request, env);
+			}
 			if (path === '/auth/refresh' && method === 'POST') {
 				return await handleRefresh(request, env);
 			}
@@ -67,6 +70,57 @@ function getAuthUser(request: Request): { userId: string } | null {
 	}
 }
 
+function formatUser(user: { id: string; apple_sub: string | null; username: string | null; display_name: string; avatar_url: string | null; created_at: number; updated_at: number }) {
+	return {
+		id: user.id,
+		apple_sub: user.apple_sub,
+		username: user.username,
+		display_name: user.display_name,
+		avatar_url: user.avatar_url,
+		created_at: user.created_at,
+		last_active_at: user.updated_at,
+	};
+}
+
+async function createSession(userId: string, env: Env): Promise<{ access_token: string; refresh_token: string }> {
+	const accessToken = createAccessToken(userId, 'tones-secret');
+	const refreshToken = crypto.randomUUID();
+	await env.DB.prepare(
+		'INSERT OR REPLACE INTO sessions (user_id, refresh_token, expires_at) VALUES (?, ?, ?)'
+	).bind(userId, refreshToken, Date.now() + 30 * 24 * 60 * 60 * 1000).run();
+	return { access_token: accessToken, refresh_token: refreshToken };
+}
+
+async function handleDemoAuth(request: Request, env: Env): Promise<Response> {
+	const { demo_id } = (await request.json()) as { demo_id: string };
+	if (!demo_id || demo_id.length < 8) {
+		return new Response(JSON.stringify({ error: 'Invalid demo ID' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const demoSub = 'demo:' + demo_id;
+
+	let user = await env.DB.prepare(
+		'SELECT id, apple_sub, username, display_name, avatar_url, created_at, updated_at FROM users WHERE apple_sub = ?'
+	).bind(demoSub).first<{ id: string; apple_sub: string | null; username: string | null; display_name: string; avatar_url: string | null; created_at: number; updated_at: number }>();
+
+	if (!user) {
+		const userId = crypto.randomUUID();
+		await env.DB.prepare(
+			'INSERT INTO users (id, apple_sub, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+		).bind(userId, demoSub, 'Demo User', Date.now(), Date.now()).run();
+
+		user = { id: userId, apple_sub: demoSub, username: null, display_name: 'Demo User', avatar_url: null, created_at: Date.now(), updated_at: Date.now() };
+	}
+
+	const tokens = await createSession(user.id, env);
+
+	return new Response(JSON.stringify({
+		user: formatUser(user),
+		access_token: tokens.access_token,
+		refresh_token: tokens.refresh_token,
+	}), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
 async function handleAppleAuth(request: Request, env: Env): Promise<Response> {
 	const body = (await request.json()) as { apple_token: string; display_name?: string };
 	const appleSub = await verifyAppleToken(body.apple_token);
@@ -94,25 +148,12 @@ async function handleAppleAuth(request: Request, env: Env): Promise<Response> {
 		user = { ...user, display_name: displayName, updated_at: Date.now() };
 	}
 
-	const accessToken = createAccessToken(user.id, 'tones-secret');
-	const refreshToken = crypto.randomUUID();
-
-	await env.DB.prepare(
-		'INSERT OR REPLACE INTO sessions (user_id, refresh_token, expires_at) VALUES (?, ?, ?)'
-	).bind(user.id, refreshToken, Date.now() + 30 * 24 * 60 * 60 * 1000).run();
+	const tokens = await createSession(user.id, env);
 
 	return new Response(JSON.stringify({
-		user: {
-			id: user.id,
-			apple_sub: user.apple_sub,
-			username: user.username,
-			display_name: user.display_name,
-			avatar_url: user.avatar_url,
-			created_at: user.created_at,
-			last_active_at: user.updated_at,
-		},
-		access_token: accessToken,
-		refresh_token: refreshToken,
+		user: formatUser(user),
+		access_token: tokens.access_token,
+		refresh_token: tokens.refresh_token,
 	}), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
@@ -247,8 +288,8 @@ async function handleUserSearch(request: Request, env: Env): Promise<Response> {
 	}
 
 	const users = await env.DB.prepare(
-		`SELECT id, username, display_name FROM users WHERE username LIKE '${q}%' AND id != '${auth.userId}' LIMIT 20`
-	).all<{ id: string; username: string; display_name: string }>();
+		'SELECT id, username, display_name FROM users WHERE username LIKE ? AND id != ? LIMIT 20'
+	).bind(q + '%', auth.userId).all<{ id: string; username: string; display_name: string }>();
 
 	return new Response(JSON.stringify(users.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }

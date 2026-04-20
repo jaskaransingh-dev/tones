@@ -3,15 +3,22 @@ import AVFoundation
 import Combine
 
 @MainActor
-final class AudioSession: NSObject, ObservableObject, AVAudioRecorderDelegate {
+final class AudioSession: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
-    @Published private(set) var isPlaying = false
+    @Published private(set) var currentlyPlayingId: String? = nil
+    @Published private(set) var playbackProgress: Double = 0
     @Published private(set) var level: Double = 0
 
     private var recorder: AVAudioRecorder?
-    private var player: AVPlayer?
-    private var playerObserver: Any?
+    private var player: AVAudioPlayer?
     private var meterTimer: Timer?
+    private var playbackTimer: Timer?
+    private var currentPlayingURL: URL?
+    private var onPlaybackFinished: (() -> Void)?
+
+    override init() {
+        super.init()
+    }
 
     func startRecording() async throws {
         try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
@@ -25,38 +32,78 @@ final class AudioSession: NSObject, ObservableObject, AVAudioRecorderDelegate {
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
         recorder = try AVAudioRecorder(url: url, settings: settings)
-        recorder?.delegate = self
+        recorder?.delegate = nil
         recorder?.isMeteringEnabled = true
         recorder?.record()
         isRecording = true
         startMetering()
     }
 
-    func stopRecording(completion: @escaping (URL?, TimeInterval?) -> Void) {
-        guard let recorder else { completion(nil, nil); return }
-        recorder.stop()
+    func stopRecording() -> (url: URL?, duration: TimeInterval?) {
+        guard let rec = recorder else { return (nil, nil) }
+        rec.stop()
         isRecording = false
         stopMetering()
-        completion(recorder.url, recorder.currentTime)
+        let url = rec.url
+        let duration = rec.currentTime
+        return (url, duration)
     }
 
-    func play(url: URL) {
-        if isPlaying {
-            player?.pause()
-            isPlaying = false
-            return
+    func play(url: URL, messageId: String? = nil, onFinished: (() -> Void)? = nil) {
+        stopPlayback()
+        currentPlayingURL = url
+        onPlaybackFinished = onFinished
+        currentlyPlayingId = messageId
+
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try AVAudioSession.sharedInstance().setActive(true)
+
+            player = try AVAudioPlayer(contentsOf: url)
+            player?.delegate = self
+            player?.play()
+            startPlaybackProgress()
+        } catch {
+            print("Playback failed: \(error)")
+            currentlyPlayingId = nil
+            onPlaybackFinished?()
+            onPlaybackFinished = nil
         }
-        let item = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: item)
-        // Observe end
-        if let observer = playerObserver { NotificationCenter.default.removeObserver(observer) }
-        playerObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.isPlaying = false
-            }
-        }
+    }
+
+    func stopPlayback() {
+        player?.stop()
+        player = nil
+        currentlyPlayingId = nil
+        playbackProgress = 0
+        stopPlaybackProgress()
+        onPlaybackFinished = nil
+    }
+
+    func pausePlayback() {
+        player?.pause()
+    }
+
+    func resumePlayback() {
         player?.play()
-        isPlaying = true
+    }
+
+    func seekTo(_ fraction: Double) {
+        guard let player else { return }
+        let time = fraction * player.duration
+        player.currentTime = time
+    }
+
+    var isPlaying: Bool {
+        currentlyPlayingId != nil
+    }
+
+    var duration: TimeInterval {
+        player?.duration ?? 0
+    }
+
+    var currentTime: TimeInterval {
+        player?.currentTime ?? 0
     }
 
     private func startMetering() {
@@ -78,7 +125,32 @@ final class AudioSession: NSObject, ObservableObject, AVAudioRecorderDelegate {
         level = 0
     }
 
-    deinit {
-        if let observer = playerObserver { NotificationCenter.default.removeObserver(observer) }
+    private func startPlaybackProgress() {
+        playbackTimer?.invalidate()
+        playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let player = self.player else { return }
+            if player.duration > 0 {
+                Task { @MainActor in
+                    self.playbackProgress = player.currentTime / player.duration
+                }
+            }
+        }
+    }
+
+    private func stopPlaybackProgress() {
+        playbackTimer?.invalidate()
+        playbackTimer = nil
+    }
+}
+
+extension AudioSession: AVAudioPlayerDelegate {
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            self.currentlyPlayingId = nil
+            self.playbackProgress = 0
+            self.stopPlaybackProgress()
+            self.onPlaybackFinished?()
+            self.onPlaybackFinished = nil
+        }
     }
 }

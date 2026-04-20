@@ -3,7 +3,8 @@ import SwiftUI
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @EnvironmentObject var authService: AuthService
-    @State private var showingAddChat = false
+    @State private var showingAddFriend = false
+    @State private var showingSignOut = false
 
     var body: some View {
         NavigationStack {
@@ -20,8 +21,8 @@ struct HomeView: View {
                             .font(.headline)
                             .foregroundStyle(.gray)
 
-                        Button(action: { showingAddChat = true }) {
-                            Text("Start a conversation")
+                        Button(action: { showingAddFriend = true }) {
+                            Text("Add a friend")
                                 .fontWeight(.semibold)
                                 .foregroundStyle(.black)
                                 .padding(.horizontal, 24)
@@ -33,26 +34,28 @@ struct HomeView: View {
                 } else {
                     List {
                         ForEach(viewModel.chats) { chat in
-                            NavigationLink(destination: ChatView(chat: chat, homeViewModel: viewModel)) {
+                            NavigationLink(destination: ChatView(chat: chat, viewModel: viewModel)) {
                                 HStack(spacing: 12) {
                                     Circle()
                                         .fill(chat.isGroup ? Color.purple : Color.yellow.opacity(0.8))
                                         .frame(width: 12, height: 12)
 
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(chat.title)
+                                        Text(chat.name)
                                             .font(.headline)
                                             .foregroundStyle(.black)
 
-                                        Text(chat.lastTuneDescription)
+                                        let msgCount = LocalStorage.shared.loadMessages(chat.id).count
+                                        Text(msgCount == 0 ? "No tones yet" : "\(msgCount) tone\(msgCount == 1 ? "" : "s")")
                                             .font(.caption)
                                             .foregroundStyle(.gray)
                                     }
 
                                     Spacer()
 
-                                    if chat.unheardCount > 0 {
-                                        Text("\(chat.unheardCount)")
+                                    let unheard = LocalStorage.shared.getUnheardCount(chatId: chat.id)
+                                    if unheard > 0 {
+                                        Text("\(unheard)")
                                             .font(.caption2)
                                             .fontWeight(.bold)
                                             .foregroundStyle(.white)
@@ -62,6 +65,12 @@ struct HomeView: View {
                                     }
                                 }
                                 .padding(.vertical, 4)
+                            }
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                let chat = viewModel.chats[index]
+                                viewModel.deleteChat(chat.id)
                             }
                         }
                         .listRowBackground(Color.white)
@@ -83,14 +92,11 @@ struct HomeView: View {
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button(action: { viewModel.addFriendPrompt() }) {
+                        Button(action: { showingAddFriend = true }) {
                             Label("Add friend", systemImage: "person.badge.plus")
                         }
-                        Button(action: { viewModel.addGroupPrompt() }) {
-                            Label("New group", systemImage: "person.3.sequence.badge.plus")
-                        }
                         Divider()
-                        Button(role: .destructive, action: { authService.logout() }) {
+                        Button(role: .destructive, action: { showingSignOut = true }) {
                             Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                         }
                     } label: {
@@ -100,19 +106,26 @@ struct HomeView: View {
                     }
                 }
             }
-            .onAppear { viewModel.createSampleData() }
-            .sheet(isPresented: $showingAddChat) {
-                AddChatView(viewModel: viewModel)
+            .onAppear { viewModel.loadChats() }
+            .sheet(isPresented: $showingAddFriend) {
+                AddFriendView(viewModel: viewModel)
+            }
+            .alert("Sign out?", isPresented: $showingSignOut) {
+                Button("Sign out", role: .destructive) { authService.logout() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You'll need to sign in again to access your account.")
             }
         }
     }
 }
 
-struct AddChatView: View {
+struct AddFriendView: View {
     @ObservedObject var viewModel: HomeViewModel
     @Environment(\.dismiss) var dismiss
-    @State private var newChatName = ""
-    @State private var isGroupChat = false
+    @State private var username = ""
+    @State private var addError: String?
+    @State private var isAdding = false
 
     var body: some View {
         NavigationStack {
@@ -120,42 +133,77 @@ struct AddChatView: View {
                 Color.white.ignoresSafeArea()
 
                 VStack(spacing: 24) {
-                    Toggle("Group chat", isOn: $isGroupChat)
-                        .tint(Color.yellow.opacity(0.8))
+                    Text("Add a friend")
+                        .font(.title2)
+                        .fontWeight(.bold)
 
-                    TextField(isGroupChat ? "Group name" : "Friend's name", text: $newChatName)
-                        .textFieldStyle(.roundedBorder)
-                        .padding(.horizontal)
+                    Text("Enter their @username to start talking")
+                        .foregroundStyle(.gray)
+                        .font(.subheadline)
 
-                    Button(action: {
-                        if isGroupChat {
-                            viewModel.chats.insert(Chat.group(title: newChatName, members: []), at: 0)
-                        } else {
-                            viewModel.chats.insert(Chat.friends(name: newChatName), at: 0)
+                    TextField("@username", text: $username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.title3)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                        .background(Color.yellow.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .onChange(of: username) { _, newValue in
+                            username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
+                            addError = nil
                         }
-                        dismiss()
-                    }) {
-                        Text("Create")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.yellow.opacity(0.85))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    if let addError {
+                        Text(addError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
-                    .disabled(newChatName.isEmpty)
+
+                    Button(action: addFriend) {
+                        HStack {
+                            if isAdding {
+                                ProgressView().tint(.black)
+                            } else {
+                                Text("Add friend")
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(username.count >= 3 ? Color.yellow.opacity(0.85) : Color.gray.opacity(0.3))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .disabled(username.count < 3 || isAdding)
 
                     Spacer()
                 }
-                .padding()
+                .padding(32)
             }
-            .navigationTitle("New conversation")
+            .navigationTitle("Add Friend")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
             }
+        }
+    }
+
+    private func addFriend() {
+        isAdding = true
+        addError = nil
+        Task {
+            do {
+                let user = try await viewModel.addFriend(byUsername: username)
+                viewModel.createDM(with: user.id, friendName: user.displayName)
+                dismiss()
+            } catch {
+                addError = error.localizedDescription
+            }
+            isAdding = false
         }
     }
 }
