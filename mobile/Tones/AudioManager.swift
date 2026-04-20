@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Combine
 
 class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     var audioRecorder: AVAudioRecorder?
@@ -19,7 +20,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func setupSession() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
             session.requestRecordPermission { granted in
                 if !granted { print("Microphone permission not granted") }

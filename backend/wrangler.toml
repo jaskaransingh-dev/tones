@@ -1,0 +1,33 @@
+name = "tones-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[env.staging]
+name = "tones-api-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "tones"
+database_id = "85c743b7-ed33-4292-bed1-03dd0446d6a9"
+
+[[env.staging.kv_namespaces]]
+binding = "SESSIONS"
+id = "f7c2d8ecffd14173b32530b58bd26645"
+
+[env.staging.vars]
+APPLE_CLIENT_ID = "com.tones.app"
+
+[env.production]
+name = "tones-api-production"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "tones"
+database_id = "85c743b7-ed33-4292-bed1-03dd0446d6a9"
+
+[[env.production.kv_namespaces]]
+binding = "SESSIONS"
+id = "f7c2d8ecffd14173b32530b58bd26645"
+
+[env.production.vars]
+APPLE_CLIENT_ID = "com.tones.app"
