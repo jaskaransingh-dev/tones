@@ -26,3 +26,17 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+-- Friends table
+CREATE TABLE IF NOT EXISTS friends (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    friend_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (friend_id) REFERENCES users(id),
+    UNIQUE(user_id, friend_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id);
+CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id);

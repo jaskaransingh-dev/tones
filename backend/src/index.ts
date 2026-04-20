@@ -46,6 +46,12 @@ export default {
 			if (path === '/users/search' && method === 'GET') {
 				return await handleUserSearch(request, env);
 			}
+			if (path === '/friends' && method === 'GET') {
+				return await handleListFriends(request, env);
+			}
+			if (path === '/friends/add' && method === 'POST') {
+				return await handleAddFriend(request, env);
+			}
 
 			return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
 		} catch (e) {
@@ -309,4 +315,58 @@ async function handleUserSearch(request: Request, env: Env): Promise<Response> {
 	).bind(q.toLowerCase() + '%', auth.userId).all<{ id: string; username: string; display_name: string }>();
 
 	return new Response(JSON.stringify(users.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleListFriends(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) {
+		return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const friends = await env.DB.prepare(
+		`SELECT u.id, u.username, u.display_name, u.avatar_url 
+		 FROM friends f 
+		 JOIN users u ON u.id = f.friend_id 
+		 WHERE f.user_id = ?`
+	).bind(auth.userId).all<{ id: string; username: string | null; display_name: string; avatar_url: string | null }>();
+
+	return new Response(JSON.stringify(friends.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleAddFriend(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) {
+		return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const { friend_id } = (await request.json()) as { friend_id: string };
+
+	if (!friend_id) {
+		return new Response(JSON.stringify({ error: 'friend_id required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	// Check if friend exists
+	const friendExists = await env.DB.prepare(
+		'SELECT id FROM users WHERE id = ?'
+	).bind(friend_id).first<{ id: string }>();
+
+	if (!friendExists) {
+		return new Response(JSON.stringify({ error: 'User not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	// Check if already friends
+	const alreadyFriends = await env.DB.prepare(
+		'SELECT id FROM friends WHERE user_id = ? AND friend_id = ?'
+	).bind(auth.userId, friend_id).first();
+
+	if (alreadyFriends) {
+		return new Response(JSON.stringify({ error: 'Already friends' }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	// Add friend
+	await env.DB.prepare(
+		'INSERT INTO friends (id, user_id, friend_id, created_at) VALUES (?, ?, ?, ?)'
+	).bind(crypto.randomUUID(), auth.userId, friend_id, Date.now()).run();
+
+	return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }

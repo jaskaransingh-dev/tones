@@ -8,10 +8,13 @@
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/auth/apple` | POST | Sign in with Apple |
+| `/auth/demo` | POST | Sign in with demo account |
 | `/auth/refresh` | POST | Refresh token |
 | `/auth/me` | GET | Get current user |
 | `/auth/username` | POST | Set username |
 | `/users/search?q=` | GET | Search users |
+| `/friends` | GET | List friends |
+| `/friends/add` | POST | Add a friend |
 
 ## Test Results
 

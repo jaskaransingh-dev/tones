@@ -45,13 +45,17 @@ struct LoginResponse: Codable {
     }
 }
 
-struct TonesAuthError: Error {
+struct TonesAuthError: Error, LocalizedError {
     var message: String
     var suggestions: [String]?
 
     init(message: String, suggestions: [String]? = nil) {
         self.message = message
         self.suggestions = suggestions
+    }
+
+    var errorDescription: String? {
+        return message
     }
 }
 

@@ -47,6 +47,10 @@ final class HomeViewModel: ObservableObject {
         guard let user = users.first(where: { $0.username?.lowercased() == username.lowercased() }) else {
             throw TonesAuthError(message: "User @\(username) not found. Make sure they have a username set.")
         }
+        
+        // Actually add the friend via API
+        try await api.addFriend(friendId: user.id)
+        
         return user
     }
 }

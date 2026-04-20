@@ -131,8 +131,16 @@ final class APIClient {
 
     private func validate(resp: URLResponse, data: Data) throws {
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw NSError(domain: "APIClient", code: (resp as? HTTPURLResponse)?.statusCode ?? -1, userInfo: [NSLocalizedDescriptionKey: body])
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            
+            // Try to parse JSON error response
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let errorMsg = json["error"] as? String {
+                throw TonesAuthError(message: errorMsg)
+            }
+            
+            let statusCode = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            throw NSError(domain: "APIClient", code: statusCode, userInfo: [NSLocalizedDescriptionKey: body])
         }
     }
 }
