@@ -2,9 +2,26 @@ import SwiftUI
 
 struct WelcomeView: View {
     @EnvironmentObject var authService: AuthService
-    @State private var showUsernamePicker = false
+
+    private var needsUsername: Bool {
+        guard let user = authService.currentUser else { return false }
+        return !user.hasUsername
+    }
 
     var body: some View {
+        ZStack {
+            Color.white
+                .ignoresSafeArea()
+
+            if needsUsername {
+                UsernameView()
+            } else {
+                signedInContent
+            }
+        }
+    }
+
+    private var signedInContent: some View {
         ZStack {
             Color.white
                 .ignoresSafeArea()
@@ -93,14 +110,6 @@ struct WelcomeView: View {
                 .padding(.horizontal, 32)
                 .padding(.bottom, 50)
             }
-            .onChange(of: authService.currentUser?.hasUsername) { _, hasUsername in
-                let hasUser = authService.currentUser != nil
-                showUsernamePicker = hasUsername == false && hasUser
-            }
-
-            if showUsernamePicker {
-                UsernameView(showing: $showUsernamePicker)
-            }
         }
     }
 
@@ -127,9 +136,8 @@ struct WelcomeView: View {
 
 struct UsernameView: View {
     @EnvironmentObject var authService: AuthService
-    @Binding var showing: Bool
     @State private var username = ""
-    @State private var error: String?
+    @State private var usernameError: String?
     @State private var suggestions: [String] = []
     @State private var isChecking = false
 
@@ -137,14 +145,22 @@ struct UsernameView: View {
         ZStack {
             Color.white.ignoresSafeArea()
 
-            VStack(spacing: 28) {
-                Text("choose your username")
-                    .font(.title2)
+            VStack(spacing: 24) {
+                Text("pick your username")
+                    .font(.title)
                     .fontWeight(.bold)
                     .foregroundStyle(.black)
 
-                Text("@username")
+                Text("this is permanent — friends add you by @username")
+                    .font(.subheadline)
                     .foregroundStyle(.gray)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+
+                Text("@\(username.isEmpty ? "username" : username)")
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .foregroundStyle(Color.yellow.opacity(0.9))
 
                 TextField("username", text: $username)
                     .textInputAutocapitalization(.never)
@@ -155,15 +171,20 @@ struct UsernameView: View {
                     .background(Color.yellow.opacity(0.15))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .onChange(of: username) { _, newValue in
-                        username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
-                        error = nil
+                        username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
+                        usernameError = nil
                     }
+                    .interactiveDismissDisabled(true)
 
-                if let error {
-                    Text(error)
+                if let usernameError {
+                    Text(usernameError)
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+
+                Text("letters, numbers, . _")
+                    .font(.caption2)
+                    .foregroundStyle(.gray.opacity(0.6))
 
                 if !suggestions.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
@@ -187,7 +208,7 @@ struct UsernameView: View {
                             ProgressView()
                                 .tint(.black)
                         } else {
-                            Text("Continue")
+                            Text("Claim this username")
                                 .fontWeight(.semibold)
                         }
                     }
@@ -200,6 +221,10 @@ struct UsernameView: View {
                 }
                 .disabled(username.count < 3 || isChecking)
 
+                Text("you cannot change this later")
+                    .font(.caption2)
+                    .foregroundStyle(.gray.opacity(0.6))
+
                 Spacer()
             }
             .padding(32)
@@ -208,19 +233,20 @@ struct UsernameView: View {
 
     private func saveUsername() {
         isChecking = true
-        error = nil
+        usernameError = nil
 
         Task {
             do {
                 try await authService.setUsername(username)
-                if authService.currentUser?.hasUsername == true {
-                    showing = false
+            } catch {
+                let message = error.localizedDescription
+                if message.contains("taken") {
+                    usernameError = "That username is taken"
+                } else if message.contains("already set") {
+                    usernameError = "You already have a username"
+                } else {
+                    usernameError = message
                 }
-            } catch let nsError as NSError {
-                if let sugg = nsError.userInfo["suggestions"] as? [String] {
-                    suggestions = sugg
-                }
-                error = nsError.localizedDescription
             }
             isChecking = false
         }

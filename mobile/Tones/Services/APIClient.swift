@@ -1,6 +1,6 @@
 import Foundation
 
-actor APIClient {
+final class APIClient {
     static let shared = APIClient()
 
     private let baseURL: URL

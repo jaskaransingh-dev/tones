@@ -122,16 +122,25 @@ final class AuthService: NSObject, ObservableObject {
             throw TonesAuthError(message: "Request failed")
         }
 
+        if http.statusCode == 403 {
+            throw TonesAuthError(message: "Username already set and cannot be changed")
+        }
+
         if http.statusCode == 409 {
-            let error = try JSONDecoder().decode(TonesAuthErrorResponse.self, from: data)
-            throw TonesAuthError(message: error.error, suggestions: error.suggestions)
+            let errorResponse = try JSONDecoder().decode(TonesAuthErrorResponse.self, from: data)
+            throw TonesAuthError(message: errorResponse.error, suggestions: errorResponse.suggestions)
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            throw TonesAuthError(message: "Failed to set username")
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw TonesAuthError(message: "Failed to set username: \(body)")
         }
 
-        currentUser?.username = username
+        if let responseDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let newUsername = responseDict["username"] as? String {
+            currentUser?.username = newUsername
+            currentUser?.displayName = "@" + newUsername
+        }
     }
 
     func refreshSession() async throws {
@@ -148,13 +157,14 @@ final class AuthService: NSObject, ObservableObject {
         let (data, resp) = try await URLSession.shared.data(for: req)
 
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            keychain.clearAll()
+            keychain.clear()
             currentUser = nil
             return
         }
 
         let tokens = try JSONDecoder().decode(TonesSession.self, from: data)
         try keychain.saveSession(tokens)
+        APIClient.shared.setAuthToken(tokens.accessToken)
     }
 
     func registerDevice(pushToken: String) async throws {
@@ -178,16 +188,18 @@ final class AuthService: NSObject, ObservableObject {
     private func saveSession(_ response: LoginResponse) throws {
         let session = TonesSession(accessToken: response.accessToken, refreshToken: response.refreshToken)
         try keychain.saveSession(session)
+        APIClient.shared.setAuthToken(response.accessToken)
     }
 
     private func restoreSession() async {
-        guard keychain.getAccessToken() != nil else { return }
+        guard let token = keychain.getAccessToken() else { return }
+
+        APIClient.shared.setAuthToken(token)
 
         do {
-            let token = keychain.getAccessToken()
             let url = baseURL.appendingPathComponent("auth/me")
             var req = URLRequest(url: url)
-            req.setValue("Bearer \(token ?? "")", forHTTPHeaderField: "Authorization")
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
             let (data, resp) = try await URLSession.shared.data(for: req)
 

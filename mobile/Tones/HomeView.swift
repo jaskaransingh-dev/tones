@@ -58,7 +58,7 @@ struct HomeView: View {
                                         Text("\(unheard)")
                                             .font(.caption2)
                                             .fontWeight(.bold)
-                                            .foregroundStyle(.white)
+                                            .foregroundStyle(.black)
                                             .padding(6)
                                             .background(Circle())
                                             .background(Color.yellow.opacity(0.9))
@@ -87,6 +87,13 @@ struct HomeView: View {
                             .scaledToFit()
                             .frame(width: 32, height: 32)
                             .clipShape(Circle())
+
+                        if let username = authService.currentUser?.username {
+                            Text("@\(username)")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.gray)
+                        }
                     }
                 }
 
@@ -94,6 +101,9 @@ struct HomeView: View {
                     Menu {
                         Button(action: { showingAddFriend = true }) {
                             Label("Add friend", systemImage: "person.badge.plus")
+                        }
+                        Button(action: { UIPasteboard.general.string = "@\(authService.currentUser?.username ?? "")" }) {
+                            Label("Copy my @username", systemImage: "doc.on.doc")
                         }
                         Divider()
                         Button(role: .destructive, action: { showingSignOut = true }) {
@@ -150,7 +160,7 @@ struct AddFriendView: View {
                         .background(Color.yellow.opacity(0.15))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .onChange(of: username) { _, newValue in
-                            username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
+                            username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
                             addError = nil
                         }
 
@@ -198,7 +208,8 @@ struct AddFriendView: View {
         Task {
             do {
                 let user = try await viewModel.addFriend(byUsername: username)
-                viewModel.createDM(with: user.id, friendName: user.displayName)
+                let friendName = user.username.map { "@\($0)" } ?? user.displayName
+                viewModel.createDM(with: user.id, friendName: friendName)
                 dismiss()
             } catch {
                 addError = error.localizedDescription

@@ -11,7 +11,7 @@ struct TonesApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if authService.currentUser != nil {
+                if let user = authService.currentUser, user.hasUsername {
                     HomeView()
                 } else {
                     WelcomeView()

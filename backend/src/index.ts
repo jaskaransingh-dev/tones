@@ -216,28 +216,37 @@ async function handleSetUsername(request: Request, env: Env): Promise<Response> 
 		return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
-	const { username } = await request.json();
+	const existingUser = await env.DB.prepare(
+		'SELECT username FROM users WHERE id = ?'
+	).bind(auth.userId).first<{ username: string | null }>();
 
-	if (!username || username.length < 3 || username.length > 20) {
-		return new Response(JSON.stringify({ error: 'Username must be 3-20 characters' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	if (existingUser?.username) {
+		return new Response(JSON.stringify({ error: 'Username already set and cannot be changed' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
-	const normalizedUsername = username.toLowerCase().replace(/[^a-z0-9_]/g, '');
+	const { username } = (await request.json()) as { username: string };
 
-	const existing = await env.DB.prepare(
+	const cleaned = username.toLowerCase().replace(/[^a-z0-9_.]/g, '');
+	if (!cleaned || cleaned.length < 3 || cleaned.length > 20) {
+		return new Response(JSON.stringify({ error: 'Username must be 3-20 characters (letters, numbers, . _)' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const normalizedUsername = cleaned;
+
+	const taken = await env.DB.prepare(
 		'SELECT id FROM users WHERE username = ? AND id != ?'
 	).bind(normalizedUsername, auth.userId).first<{ id: string }>();
 
-	if (existing) {
+	if (taken) {
 		const suggestions = await getSuggestions(env, normalizedUsername);
 		return new Response(JSON.stringify({ error: 'Username taken', suggestions }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
 	await env.DB.prepare(
-		'UPDATE users SET username = ?, updated_at = ? WHERE id = ?'
-	).bind(normalizedUsername, Date.now(), auth.userId).run();
+		'UPDATE users SET username = ?, display_name = ?, updated_at = ? WHERE id = ?'
+	).bind(normalizedUsername, '@' + normalizedUsername, Date.now(), auth.userId).run();
 
-	return new Response(JSON.stringify({ username: normalizedUsername }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	return new Response(JSON.stringify({ username: normalizedUsername, display_name: '@' + normalizedUsername }), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
 async function getSuggestions(env: Env, base: string): Promise<string[]> {
@@ -287,9 +296,17 @@ async function handleUserSearch(request: Request, env: Env): Promise<Response> {
 		return new Response(JSON.stringify([]), { headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
+	const exactUser = await env.DB.prepare(
+		'SELECT id, username, display_name FROM users WHERE LOWER(username) = LOWER(?) AND id != ?'
+	).bind(q, auth.userId).first<{ id: string; username: string; display_name: string }>();
+
+	if (exactUser) {
+		return new Response(JSON.stringify([exactUser]), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
 	const users = await env.DB.prepare(
 		'SELECT id, username, display_name FROM users WHERE username LIKE ? AND id != ? LIMIT 20'
-	).bind(q + '%', auth.userId).all<{ id: string; username: string; display_name: string }>();
+	).bind(q.toLowerCase() + '%', auth.userId).all<{ id: string; username: string; display_name: string }>();
 
 	return new Response(JSON.stringify(users.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
