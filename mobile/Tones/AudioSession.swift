@@ -20,8 +20,18 @@ final class AudioSession: NSObject, ObservableObject {
         super.init()
     }
 
+    /// Pre-activate the audio session so the first tap-to-play/record has no warmup delay.
+    func prewarm() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            // Non-fatal; the first real call will retry.
+        }
+    }
+
     func startRecording() async throws {
-        try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
         try AVAudioSession.sharedInstance().setActive(true)
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("tune_\(UUID().uuidString).m4a")
@@ -29,7 +39,8 @@ final class AudioSession: NSObject, ObservableObject {
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 44100,
             AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+            AVEncoderBitRateKey: 128000
         ]
         recorder = try AVAudioRecorder(url: url, settings: settings)
         recorder?.delegate = nil
@@ -41,12 +52,11 @@ final class AudioSession: NSObject, ObservableObject {
 
     func stopRecording() -> (url: URL?, duration: TimeInterval?) {
         guard let rec = recorder else { return (nil, nil) }
+        let duration = rec.currentTime  // must read before stop() resets it to 0
         rec.stop()
         isRecording = false
         stopMetering()
-        let url = rec.url
-        let duration = rec.currentTime
-        return (url, duration)
+        return (rec.url, duration)
     }
 
     func play(url: URL, messageId: String? = nil, onFinished: (() -> Void)? = nil) {
@@ -56,7 +66,7 @@ final class AudioSession: NSObject, ObservableObject {
         currentlyPlayingId = messageId
 
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
             try AVAudioSession.sharedInstance().setActive(true)
 
             player = try AVAudioPlayer(contentsOf: url)
@@ -90,8 +100,12 @@ final class AudioSession: NSObject, ObservableObject {
 
     func seekTo(_ fraction: Double) {
         guard let player else { return }
-        let time = fraction * player.duration
-        player.currentTime = time
+        player.currentTime = fraction * player.duration
+    }
+
+    func seekBackward(_ seconds: TimeInterval) {
+        guard let player else { return }
+        player.currentTime = max(0, player.currentTime - seconds)
     }
 
     var isPlaying: Bool {

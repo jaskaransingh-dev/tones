@@ -117,6 +117,32 @@ class LocalStorage {
     func getUnheardCount(chatId: String) -> Int {
         loadMessages(chatId).filter { !$0.heard }.count
     }
+
+    // MARK: - Sync State
+
+    func lastSyncedAt(chatId: String) -> Int {
+        let url = documentsPath.appendingPathComponent("sync_\(chatId).txt")
+        guard let data = try? Data(contentsOf: url),
+              let str = String(data: data, encoding: .utf8),
+              let ts = Int(str.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return 0
+        }
+        return ts
+    }
+
+    func setLastSyncedAt(chatId: String, ts: Int) {
+        let url = documentsPath.appendingPathComponent("sync_\(chatId).txt")
+        try? String(ts).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    func clearAll() {
+        try? fileManager.removeItem(at: documentsPath.appendingPathComponent(chatsFileName))
+        let items = (try? fileManager.contentsOfDirectory(atPath: documentsPath.path)) ?? []
+        for item in items where item.hasPrefix("messages_") || item.hasPrefix("sync_") {
+            try? fileManager.removeItem(at: documentsPath.appendingPathComponent(item))
+        }
+        try? fileManager.removeItem(at: documentsPath.appendingPathComponent("audio", isDirectory: true))
+    }
 }
 
 // MARK: - Models (Codable for JSON storage)

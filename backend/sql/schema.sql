@@ -1,5 +1,4 @@
--- Tones Database Schema (Minimal - Auth Only)
--- All chat/message data stored locally on iPhone
+-- Tones Database Schema
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -40,3 +39,36 @@ CREATE TABLE IF NOT EXISTS friends (
 
 CREATE INDEX IF NOT EXISTS idx_friends_user ON friends(user_id);
 CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id);
+
+-- Chats
+CREATE TABLE IF NOT EXISTS chats (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+);
+
+CREATE TABLE IF NOT EXISTS chat_members (
+    chat_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    PRIMARY KEY (chat_id, user_id),
+    FOREIGN KEY (chat_id) REFERENCES chats(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_members(user_id);
+
+-- Messages (audio stored inline as base64 for simplicity)
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    sender_id TEXT NOT NULL,
+    audio_base64 TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+    FOREIGN KEY (chat_id) REFERENCES chats(id),
+    FOREIGN KEY (sender_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);

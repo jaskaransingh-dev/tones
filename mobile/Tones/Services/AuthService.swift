@@ -1,100 +1,52 @@
 import Foundation
 import Combine
 import AuthenticationServices
+import UIKit
 
 @MainActor
-final class AuthService: NSObject, ObservableObject {
+final class AuthService: ObservableObject {
     static let shared = AuthService()
 
     @Published var currentUser: TonesUser?
     @Published var isLoading = false
     @Published var authError: String?
 
-    private let baseURL = URL(string: "https://tones-api-staging.jazing14.workers.dev")!
+    private let baseURL = URL(string: "https://tones-api-prod.jazing14.workers.dev")!
     private let keychain = KeychainHelper.shared
 
-    override init() {
-        super.init()
-        Task {
-            await restoreSession()
-        }
+    init() {
+        Task { await restoreSession() }
     }
 
-    func signInWithApple() async throws {
+    func completeAppleSignIn(_ authorization: ASAuthorization) async throws {
         isLoading = true
         authError = nil
+        defer { isLoading = false }
 
-        let appleIDProvider = ASAuthorizationAppleIDProvider()
-        let request = appleIDProvider.createRequest()
-        request.requestedScopes = [.fullName, .email]
-
-        let controller = ASAuthorizationController(authorizationRequests: [request])
-        controller.delegate = self
-        controller.presentationContextProvider = self
-        controller.performRequests()
-    }
-
-    func signInDemo() async throws {
-        isLoading = true
-        authError = nil
-
-        let demoId: String
-        if let existingId = keychain.getDemoId() {
-            demoId = existingId
-        } else {
-            demoId = UUID().uuidString.lowercased()
-            try keychain.saveDemoId(demoId)
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+            throw TonesAuthError(message: "Invalid Apple credential")
         }
 
-        let url = baseURL.appendingPathComponent("auth/demo")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["demo_id": demoId])
-
-        let (data, resp) = try await URLSession.shared.data(for: req)
-
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
-                throw TonesAuthError(message: errorData.error)
-            }
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw TonesAuthError(message: "Demo login failed: \(body)")
-        }
-
-        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
-        try saveSession(loginResponse)
-        currentUser = loginResponse.user
-        isLoading = false
-    }
-
-    private func handleAppleAuth(credential: ASAuthorizationAppleIDCredential) async throws {
         guard let identityToken = credential.identityToken,
               let tokenString = String(data: identityToken, encoding: .utf8) else {
-            throw TonesAuthError(message: "Invalid Apple credential")
+            throw TonesAuthError(message: "Invalid Apple token")
         }
 
         var displayName = "Tones User"
         if let fullName = credential.fullName {
             let parts = [fullName.givenName, fullName.familyName].compactMap { $0 }
-            if !parts.isEmpty {
-                displayName = parts.joined(separator: " ")
-            }
+            if !parts.isEmpty { displayName = parts.joined(separator: " ") }
         }
 
         let url = baseURL.appendingPathComponent("auth/apple")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: String] = ["apple_token": tokenString, "display_name": displayName]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["apple_token": tokenString, "display_name": displayName])
 
         let (data, resp) = try await URLSession.shared.data(for: req)
 
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
-                throw TonesAuthError(message: errorData.error)
-            }
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw TonesAuthError(message: "Login failed: \(body)")
         }
@@ -123,7 +75,7 @@ final class AuthService: NSObject, ObservableObject {
         }
 
         if http.statusCode == 403 {
-            throw TonesAuthError(message: "Username already set and cannot be changed")
+            throw TonesAuthError(message: "Username already set")
         }
 
         if http.statusCode == 409 {
@@ -133,7 +85,7 @@ final class AuthService: NSObject, ObservableObject {
 
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw TonesAuthError(message: "Failed to set username: \(body)")
+            throw TonesAuthError(message: "Failed: \(body)")
         }
 
         if let responseDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -144,9 +96,7 @@ final class AuthService: NSObject, ObservableObject {
     }
 
     func refreshSession() async throws {
-        guard let refreshToken = keychain.getRefreshToken() else {
-            return
-        }
+        guard let refreshToken = keychain.getRefreshToken() else { return }
 
         let url = baseURL.appendingPathComponent("auth/refresh")
         var req = URLRequest(url: url)
@@ -167,22 +117,63 @@ final class AuthService: NSObject, ObservableObject {
         APIClient.shared.setAuthToken(tokens.accessToken)
     }
 
-    func registerDevice(pushToken: String) async throws {
-        guard let token = keychain.getAccessToken() else { return }
+    func logout() {
+        keychain.clear()
+        currentUser = nil
+    }
 
-        let url = baseURL.appendingPathComponent("devices/register")
+    func loginByUsername(_ username: String) async throws {
+        isLoading = true
+        authError = nil
+
+        let url = baseURL.appendingPathComponent("auth/login")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.httpBody = try JSONEncoder().encode(["push_token": pushToken, "push_provider": "apns"])
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["username": username])
 
-        _ = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await URLSession.shared.data(for: req)
+
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            isLoading = false
+            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
+                throw TonesAuthError(message: errorData.error)
+            }
+            throw TonesAuthError(message: "Login failed")
+        }
+
+        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
+        try saveSession(loginResponse)
+        currentUser = loginResponse.user
+        isLoading = false
     }
 
-    func logout() {
-        keychain.clearAll()
-        currentUser = nil
+    func registerByUsername(_ username: String, displayName: String? = nil) async throws {
+        isLoading = true
+        authError = nil
+
+        let url = baseURL.appendingPathComponent("auth/register")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: String] = ["username": username]
+        if let displayName { body["display_name"] = displayName }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            isLoading = false
+            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
+                throw TonesAuthError(message: errorData.error)
+            }
+            throw TonesAuthError(message: "Registration failed")
+        }
+
+        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
+        try saveSession(loginResponse)
+        currentUser = loginResponse.user
+        isLoading = false
     }
 
     private func saveSession(_ response: LoginResponse) throws {
@@ -193,7 +184,6 @@ final class AuthService: NSObject, ObservableObject {
 
     private func restoreSession() async {
         guard let token = keychain.getAccessToken() else { return }
-
         APIClient.shared.setAuthToken(token)
 
         do {
@@ -212,49 +202,5 @@ final class AuthService: NSObject, ObservableObject {
         } catch {
             print("Restore session failed: \(error)")
         }
-    }
-}
-
-extension AuthService: ASAuthorizationControllerDelegate {
-    nonisolated func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
-            Task { @MainActor in
-                self.authError = "Invalid credential"
-                self.isLoading = false
-            }
-            return
-        }
-
-        Task { @MainActor in
-            do {
-                try await self.handleAppleAuth(credential: credential)
-                self.isLoading = false
-            } catch {
-                self.authError = error.localizedDescription
-                self.isLoading = false
-            }
-        }
-    }
-
-    nonisolated func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        Task { @MainActor in
-            let asError = error as NSError
-            if asError.code == ASAuthorizationError.canceled.rawValue {
-                self.isLoading = false
-            } else {
-                self.authError = error.localizedDescription
-                self.isLoading = false
-            }
-        }
-    }
-}
-
-extension AuthService: ASAuthorizationControllerPresentationContextProviding {
-    @MainActor func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = scene.windows.first else {
-            return UIWindow()
-        }
-        return window
     }
 }

@@ -3,27 +3,33 @@ import SwiftUI
 @main
 struct TonesApp: App {
     @StateObject private var authService = AuthService.shared
-
+    
     init() {
         setupAppearance()
     }
-
+    
     var body: some Scene {
         WindowGroup {
-            Group {
-                if let user = authService.currentUser, user.hasUsername {
-                    HomeView()
-                } else {
-                    WelcomeView()
+            NavigationStack {
+                Group {
+                    if let user = authService.currentUser {
+                        if user.hasUsername {
+                            HomeView()
+                        } else {
+                            SetUsernameView()
+                        }
+                    } else {
+                        WelcomeView()
+                    }
                 }
             }
             .environmentObject(authService)
         }
     }
-
+    
     private func setupAppearance() {
-        let yellow = UIColor(red: 1.0, green: 0.867, blue: 0, alpha: 1.0)
-        UINavigationBar.appearance().tintColor = UIColor.black
-        UITextField.appearance(whenContainedInInstancesOf: [UITextField.self]).tintColor = UIColor.black
+        let coralUIColor = UIColor(red: 1.0, green: 0.6, blue: 0.55, alpha: 1.0)
+        UINavigationBar.appearance().tintColor = coralUIColor
+        UITextField.appearance(whenContainedInInstancesOf: [UITextField.self]).tintColor = coralUIColor
     }
 }

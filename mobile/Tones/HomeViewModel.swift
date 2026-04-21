@@ -5,6 +5,7 @@ import Combine
 @MainActor
 final class HomeViewModel: ObservableObject {
     @Published var chats: [LocalChat] = []
+    @Published var friends: [TonesUser] = []
     @Published var isLoading = false
     @Published var searchResults: [TonesUser] = []
     @Published var isSearching = false
@@ -16,11 +17,39 @@ final class HomeViewModel: ObservableObject {
         chats = storage.loadChats()
     }
 
-    func createDM(with friendId: String, friendName: String) {
-        let chatId = UUID().uuidString
+    func createDM(with friendId: String, friendName: String) async throws -> LocalChat {
+        let chatId = try await api.createDM(friendId: friendId)
+        if let existing = storage.loadChats().first(where: { $0.id == chatId }) {
+            if !chats.contains(where: { $0.id == chatId }) {
+                chats.insert(existing, at: 0)
+            }
+            return existing
+        }
         let chat = LocalChat(id: chatId, name: friendName, type: "dm")
         storage.addChat(chat)
         chats.insert(chat, at: 0)
+        return chat
+    }
+
+    func syncChats() async {
+        do {
+            let remote = try await api.listChats()
+            let local = storage.loadChats()
+            var merged = local
+            for r in remote {
+                if merged.contains(where: { $0.id == r.id }) { continue }
+                let name: String
+                if let u = r.peer_username { name = "@\(u)" }
+                else if let d = r.peer_display_name { name = d }
+                else { name = r.title ?? "Chat" }
+                let chat = LocalChat(id: r.id, name: name, type: r.type)
+                storage.addChat(chat)
+                merged.insert(chat, at: 0)
+            }
+            chats = merged
+        } catch {
+            print("syncChats failed: \(error)")
+        }
     }
 
     func deleteChat(_ chatId: String) {
@@ -47,10 +76,23 @@ final class HomeViewModel: ObservableObject {
         guard let user = users.first(where: { $0.username?.lowercased() == username.lowercased() }) else {
             throw TonesAuthError(message: "User @\(username) not found. Make sure they have a username set.")
         }
-        
-        // Actually add the friend via API
         try await api.addFriend(friendId: user.id)
-        
+        if !friends.contains(where: { $0.id == user.id }) {
+            friends.insert(user, at: 0)
+        }
         return user
+    }
+
+    func loadFriends() async {
+        do {
+            friends = try await api.listFriends()
+        } catch {
+            print("loadFriends failed: \(error)")
+        }
+    }
+
+    func openChat(with friend: TonesUser) async throws -> LocalChat {
+        let name = friend.username.map { "@\($0)" } ?? friend.displayName
+        return try await createDM(with: friend.id, friendName: name)
     }
 }

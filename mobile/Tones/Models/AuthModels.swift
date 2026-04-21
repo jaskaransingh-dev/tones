@@ -94,32 +94,35 @@ struct ToneMessage: Codable, Identifiable {
     }
 }
 
-struct UploadURLResponse: Codable {
-    var uploadUrl: String
-    var r2Key: String
-}
-
-struct UploadURLRequest: Codable {
-    var chat_id: String
-    var duration_ms: Int
-
-    enum CodingKeys: String, CodingKey {
-        case chat_id, duration_ms
-    }
-}
-
-struct MessageSendResponse: Codable {
+struct RemoteChat: Codable {
     var id: String
+    var type: String
+    var title: String?
+    var updated_at: Int?
+    var peer_id: String?
+    var peer_username: String?
+    var peer_display_name: String?
 }
 
-struct SendMessageRequest: Codable {
-    var chat_id: String
-    var r2_key: String
-    var duration_ms: Int
+struct CreateDMResponse: Codable {
+    var id: String
+    var type: String
+}
 
-    enum CodingKeys: String, CodingKey {
-        case chat_id, r2_key, duration_ms
-    }
+struct RemoteMessage: Codable {
+    var id: String
+    var chat_id: String
+    var sender_id: String
+    var audio_base64: String
+    var duration_ms: Int
+    var created_at: Int
+    var sender_name: String?
+    var sender_username: String?
+}
+
+struct SendMessageResult: Codable {
+    var id: String
+    var created_at: Int
 }
 
 struct CreateDMRequest: Codable {

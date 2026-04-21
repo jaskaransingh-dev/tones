@@ -7,7 +7,7 @@ final class APIClient {
     private let session: URLSession
     private var authToken: String?
 
-    init(baseURL: URL = URL(string: "https://tones-api-staging.jazing14.workers.dev")!, session: URLSession = .shared) {
+    init(baseURL: URL = URL(string: "https://tones-api-prod.jazing14.workers.dev")!, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
     }
@@ -24,12 +24,12 @@ final class APIClient {
         return req
     }
 
-    func listChats() async throws -> [ChatListItem] {
+    func listChats() async throws -> [RemoteChat] {
         let url = baseURL.appendingPathComponent("chats")
         var req = authedReq(url)
         let (data, resp) = try await session.data(for: req)
         try validate(resp: resp, data: data)
-        return try JSONDecoder().decode([ChatListItem].self, from: data)
+        return try JSONDecoder().decode([RemoteChat].self, from: data)
     }
 
     func createDM(friendId: String) async throws -> String {
@@ -42,68 +42,37 @@ final class APIClient {
         let (data, resp) = try await session.data(for: req)
         try validate(resp: resp, data: data)
 
-        let result = try JSONDecoder().decode(ChatOpenResponse.self, from: data)
-        return result.message?.uuid?.uuidString ?? ""
-    }
-
-    func createGroup(title: String, memberIds: [String]) async throws -> String {
-        let url = baseURL.appendingPathComponent("chats/group")
-        var req = authedReq(url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(CreateGroupRequest(title: title, member_ids: memberIds))
-
-        let (data, resp) = try await session.data(for: req)
-        try validate(resp: resp, data: data)
-
-        let result = try JSONDecoder().decode(ChatOpenResponse.self, from: data)
-        return result.message?.uuid?.uuidString ?? ""
-    }
-
-    func openChat(chatId: String) async throws -> ChatOpenResponse {
-        let url = baseURL.appendingPathComponent("chats/\(chatId)/open")
-        var req = authedReq(url)
-        let (data, resp) = try await session.data(for: req)
-        try validate(resp: resp, data: data)
-        return try JSONDecoder().decode(ChatOpenResponse.self, from: data)
-    }
-
-    func getUploadURL(chatId: String, durationMs: Int) async throws -> UploadURLResponse {
-        let url = baseURL.appendingPathComponent("messages/upload-url")
-        var req = authedReq(url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(UploadURLRequest(chat_id: chatId, duration_ms: durationMs))
-
-        let (data, resp) = try await session.data(for: req)
-        try validate(resp: resp, data: data)
-        return try JSONDecoder().decode(UploadURLResponse.self, from: data)
-    }
-
-    func sendMessage(chatId: String, r2Key: String, durationMs: Int) async throws -> String {
-        let url = baseURL.appendingPathComponent("messages/send")
-        var req = authedReq(url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(SendMessageRequest(chat_id: chatId, r2_key: r2Key, duration_ms: durationMs))
-
-        let (data, resp) = try await session.data(for: req)
-        try validate(resp: resp, data: data)
-
-        let result = try JSONDecoder().decode(MessageSendResponse.self, from: data)
+        let result = try JSONDecoder().decode(CreateDMResponse.self, from: data)
         return result.id
     }
 
-    func markPlayed(messageId: String) async throws {
-        let url = baseURL.appendingPathComponent("messages/\(messageId)/played")
+    func listMessages(chatId: String, since: Int) async throws -> [RemoteMessage] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("chats/\(chatId)/messages"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "since", value: String(since))]
+        let url = components.url!
+        var req = authedReq(url)
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+        return try JSONDecoder().decode([RemoteMessage].self, from: data)
+    }
+
+    func sendAudioMessage(chatId: String, messageId: String, audioBase64: String, durationMs: Int) async throws -> SendMessageResult {
+        let url = baseURL.appendingPathComponent("chats/\(chatId)/messages")
         var req = authedReq(url)
         req.httpMethod = "POST"
-        let (_, resp) = try await session.data(for: req)
-        try validate(resp: resp, data: Data())
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["id": messageId, "audio_base64": audioBase64, "duration_ms": durationMs]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+        return try JSONDecoder().decode(SendMessageResult.self, from: data)
     }
 
     func searchUsers(query: String) async throws -> [TonesUser] {
-        let url = baseURL.appendingPathComponent("users/search?q=\(query)")
+        var components = URLComponents(url: baseURL.appendingPathComponent("users/search"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "q", value: query)]
+        let url = components.url!
         var req = authedReq(url)
         let (data, resp) = try await session.data(for: req)
         try validate(resp: resp, data: data)
