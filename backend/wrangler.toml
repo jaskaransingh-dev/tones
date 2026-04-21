@@ -25,3 +25,4 @@ id = "f7c2d8ecffd14173b32530b58bd26645"
 
 [env.production.vars]
 APPLE_CLIENT_ID = "tonesapp.Tones"
+PUSH_PRIVATE_KEY = ""

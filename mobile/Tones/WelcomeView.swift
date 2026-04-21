@@ -3,7 +3,9 @@ import AuthenticationServices
 
 struct WelcomeView: View {
     @EnvironmentObject var authService: AuthService
+    @State private var username = ""
     @State private var errorMessage: String?
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         ZStack {
@@ -50,42 +52,65 @@ struct WelcomeView: View {
                     .frame(height: 52)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                    HStack(spacing: 24) {
-                        NavigationLink(destination: LoginView()) {
-                            Text("sign in")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(Color.warmBrown)
+                    Text("or")
+                        .font(.system(size: 12, weight: .light))
+                        .foregroundStyle(Color.warmBrown.opacity(0.5))
+
+                    TextField("pick a username", text: $username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 17, weight: .regular))
+                        .multilineTextAlignment(.center)
+                        .padding(.vertical, 15)
+                        .padding(.horizontal, 16)
+                        .background(Color.white.opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .focused($isFocused)
+                        .onChange(of: username) { _, newValue in
+                            username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
+                            errorMessage = nil
                         }
 
-                        Circle()
-                            .fill(Color.warmBrown.opacity(0.3))
-                            .frame(width: 4, height: 4)
+                    Text("3-20 characters, no password needed")
+                        .font(.system(size: 11, weight: .light))
+                        .foregroundStyle(Color.warmBrown.opacity(0.6))
 
-                        NavigationLink(destination: CreateAccountView()) {
-                            Text("create account")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(Color.warmCoral)
+                    Button(action: demoSignIn) {
+                        HStack {
+                            if authService.isLoading {
+                                ProgressView().tint(.white)
+                            } else {
+                                Text("try it")
+                                    .font(.system(size: 17, weight: .semibold))
+                            }
                         }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 17)
+                        .background(username.count >= 3 ? Color.warmCoral : Color.warmCoral.opacity(0.4))
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .shadow(color: Color.warmCoral.opacity(username.count >= 3 ? 0.25 : 0), radius: 12, y: 6)
                     }
-                    .padding(.top, 4)
+                    .disabled(username.count < 3 || authService.isLoading)
 
                     if let errorMessage {
                         Text(errorMessage)
                             .font(.system(size: 12, weight: .light))
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.center)
-                            .padding(.top, 4)
                     }
                 }
                 .padding(.horizontal, 28)
                 .padding(.bottom, 44)
             }
         }
+        .onAppear {
+            authService.registerForPushNotifications()
+        }
     }
 
     @MainActor
     private func handleAppleResult(_ result: Result<ASAuthorization, Error>) async {
-        errorMessage = nil
         switch result {
         case .success(let authorization):
             do {
@@ -100,188 +125,12 @@ struct WelcomeView: View {
             }
         }
     }
-}
 
-struct LoginView: View {
-    @EnvironmentObject var authService: AuthService
-    @State private var username = ""
-    @State private var errorMessage: String?
-
-    var body: some View {
-        ZStack {
-            WarmBackground()
-
-            VStack(spacing: 28) {
-                Spacer()
-
-                VStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.warmPeach.opacity(0.6))
-                            .frame(width: 100, height: 100)
-                        Image(systemName: "person.circle")
-                            .font(.system(size: 36, weight: .ultraLight))
-                            .foregroundStyle(Color.warmCoral)
-                    }
-                    Text("welcome back")
-                        .font(.system(size: 28, weight: .thin))
-                        .foregroundStyle(Color.warmDark)
-                        .tracking(2)
-                }
-
-                Spacer()
-
-                VStack(spacing: 16) {
-                    TextField("username", text: $username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.title3)
-                        .multilineTextAlignment(.center)
-                        .padding()
-                        .background(Color.white.opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .onChange(of: username) { _, newValue in
-                            username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
-                            errorMessage = nil
-                        }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    Button(action: signIn) {
-                        HStack {
-                            if authService.isLoading {
-                                ProgressView().tint(.white)
-                            } else {
-                                Text("sign in")
-                                    .font(.system(size: 17, weight: .semibold))
-                            }
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(username.count >= 3 ? Color.warmCoral : Color.warmCoral.opacity(0.4))
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .shadow(color: Color.warmCoral.opacity(username.count >= 3 ? 0.25 : 0), radius: 12, y: 6)
-                    }
-                    .disabled(username.count < 3 || authService.isLoading)
-                }
-                .padding(.horizontal, 32)
-                .padding(.bottom, 50)
-            }
-        }
-        .navigationTitle("")
-    }
-
-    private func signIn() {
+    private func demoSignIn() {
         errorMessage = nil
         Task {
             do {
-                try await authService.loginByUsername(username)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-}
-
-struct CreateAccountView: View {
-    @EnvironmentObject var authService: AuthService
-    @State private var username = ""
-    @State private var displayName = ""
-    @State private var errorMessage: String?
-
-    var body: some View {
-        ZStack {
-            WarmBackground()
-
-            VStack(spacing: 28) {
-                Spacer()
-
-                VStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.warmPeach.opacity(0.6))
-                            .frame(width: 100, height: 100)
-                        Image(systemName: "person.badge.plus")
-                            .font(.system(size: 36, weight: .ultraLight))
-                            .foregroundStyle(Color.warmCoral)
-                    }
-                    Text("create account")
-                        .font(.system(size: 28, weight: .thin))
-                        .foregroundStyle(Color.warmDark)
-                        .tracking(2)
-                }
-
-                Spacer()
-
-                VStack(spacing: 16) {
-                    TextField("display name", text: $displayName)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled()
-                        .font(.title3)
-                        .multilineTextAlignment(.center)
-                        .padding()
-                        .background(Color.white.opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-
-                    TextField("@username", text: $username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.title3)
-                        .multilineTextAlignment(.center)
-                        .padding()
-                        .background(Color.white.opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .onChange(of: username) { _, newValue in
-                            username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
-                            errorMessage = nil
-                        }
-
-                    Text("3-20 characters: letters, numbers, . _")
-                        .font(.system(size: 11, weight: .light))
-                        .foregroundStyle(Color.warmBrown.opacity(0.8))
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    Button(action: createAccount) {
-                        HStack {
-                            if authService.isLoading {
-                                ProgressView().tint(.white)
-                            } else {
-                                Text("create")
-                                    .font(.system(size: 17, weight: .semibold))
-                            }
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(username.count >= 3 ? Color.warmCoral : Color.warmCoral.opacity(0.4))
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .shadow(color: Color.warmCoral.opacity(username.count >= 3 ? 0.25 : 0), radius: 12, y: 6)
-                    }
-                    .disabled(username.count < 3 || authService.isLoading)
-                }
-                .padding(.horizontal, 32)
-                .padding(.bottom, 50)
-            }
-        }
-        .navigationTitle("")
-    }
-
-    private func createAccount() {
-        errorMessage = nil
-        Task {
-            do {
-                let name = displayName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : displayName.trimmingCharacters(in: .whitespaces)
-                try await authService.registerByUsername(username, displayName: name)
+                try await authService.demoLogin(username)
             } catch {
                 errorMessage = error.localizedDescription
             }

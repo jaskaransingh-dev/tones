@@ -398,7 +398,7 @@ struct ChatView: View {
             id: messageId,
             chatId: chat.id,
             senderId: myId,
-            senderName: AuthService.shared.currentUser?.displayName ?? "You",
+            senderName: AuthService.shared.currentUser?.username.map { "@\($0)" } ?? "you",
             audioPath: "audio/\(fileName)",
             duration: duration,
             heard: true
@@ -438,7 +438,7 @@ struct ChatView: View {
                 let destURL = destDir.appendingPathComponent(fileName)
                 try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
                 try? data.write(to: destURL)
-                let senderName = r.sender_username.map { "@\($0)" } ?? r.sender_name ?? "User"
+                let senderName = r.sender_username.map { "@\($0)" } ?? "user"
                 let msg = LocalMessage(
                     id: r.id,
                     chatId: chat.id,

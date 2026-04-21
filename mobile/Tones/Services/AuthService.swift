@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AuthenticationServices
 import UIKit
+import UserNotifications
 
 @MainActor
 final class AuthService: ObservableObject {
@@ -32,23 +33,47 @@ final class AuthService: ObservableObject {
             throw TonesAuthError(message: "Invalid Apple token")
         }
 
-        var displayName = "Tones User"
-        if let fullName = credential.fullName {
-            let parts = [fullName.givenName, fullName.familyName].compactMap { $0 }
-            if !parts.isEmpty { displayName = parts.joined(separator: " ") }
-        }
-
         let url = baseURL.appendingPathComponent("auth/apple")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["apple_token": tokenString, "display_name": displayName])
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["apple_token": tokenString])
 
         let (data, resp) = try await URLSession.shared.data(for: req)
 
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw TonesAuthError(message: "Login failed: \(body)")
+        }
+
+        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
+        try saveSession(loginResponse)
+        currentUser = loginResponse.user
+    }
+
+    func demoLogin(_ username: String) async throws {
+        isLoading = true
+        authError = nil
+        defer { isLoading = false }
+
+        let cleaned = username.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
+        guard cleaned.count >= 3 else {
+            throw TonesAuthError(message: "Username must be at least 3 characters")
+        }
+
+        let url = baseURL.appendingPathComponent("auth/demo")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["username": cleaned])
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
+                throw TonesAuthError(message: errorData.error)
+            }
+            throw TonesAuthError(message: "Login failed")
         }
 
         let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
@@ -91,7 +116,16 @@ final class AuthService: ObservableObject {
         if let responseDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let newUsername = responseDict["username"] as? String {
             currentUser?.username = newUsername
-            currentUser?.displayName = "@" + newUsername
+        }
+    }
+
+    func registerForPushNotifications() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if granted {
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
         }
     }
 
@@ -119,61 +153,9 @@ final class AuthService: ObservableObject {
 
     func logout() {
         keychain.clear()
+        LocalStorage.shared.clearAll()
+        APIClient.shared.clearAuthToken()
         currentUser = nil
-    }
-
-    func loginByUsername(_ username: String) async throws {
-        isLoading = true
-        authError = nil
-
-        let url = baseURL.appendingPathComponent("auth/login")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["username": username])
-
-        let (data, resp) = try await URLSession.shared.data(for: req)
-
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            isLoading = false
-            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
-                throw TonesAuthError(message: errorData.error)
-            }
-            throw TonesAuthError(message: "Login failed")
-        }
-
-        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
-        try saveSession(loginResponse)
-        currentUser = loginResponse.user
-        isLoading = false
-    }
-
-    func registerByUsername(_ username: String, displayName: String? = nil) async throws {
-        isLoading = true
-        authError = nil
-
-        let url = baseURL.appendingPathComponent("auth/register")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: String] = ["username": username]
-        if let displayName { body["display_name"] = displayName }
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, resp) = try await URLSession.shared.data(for: req)
-
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            isLoading = false
-            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
-                throw TonesAuthError(message: errorData.error)
-            }
-            throw TonesAuthError(message: "Registration failed")
-        }
-
-        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
-        try saveSession(loginResponse)
-        currentUser = loginResponse.user
-        isLoading = false
     }
 
     private func saveSession(_ response: LoginResponse) throws {

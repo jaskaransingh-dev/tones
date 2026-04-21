@@ -4,17 +4,15 @@ import SwiftUI
 struct TonesUser: Codable, Identifiable {
     var id: String
     var appleSub: String?
-    var phoneNumber: String?
     var username: String?
-    var displayName: String
     var avatarURL: String?
     var createdAt: Int?
     var lastActiveAt: Int?
     var notificationToken: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, appleSub = "apple_sub", phoneNumber = "phone_number", username
-        case displayName = "display_name", avatarURL = "avatar_url"
+        case id, appleSub = "apple_sub", username
+        case avatarURL = "avatar_url"
         case createdAt = "created_at", lastActiveAt = "last_active_at"
         case notificationToken = "notification_token"
     }
@@ -101,7 +99,6 @@ struct RemoteChat: Codable {
     var updated_at: Int?
     var peer_id: String?
     var peer_username: String?
-    var peer_display_name: String?
 }
 
 struct CreateDMResponse: Codable {
@@ -116,7 +113,6 @@ struct RemoteMessage: Codable {
     var audio_base64: String
     var duration_ms: Int
     var created_at: Int
-    var sender_name: String?
     var sender_username: String?
 }
 

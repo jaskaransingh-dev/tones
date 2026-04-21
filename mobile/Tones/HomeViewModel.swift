@@ -40,8 +40,8 @@ final class HomeViewModel: ObservableObject {
                 if merged.contains(where: { $0.id == r.id }) { continue }
                 let name: String
                 if let u = r.peer_username { name = "@\(u)" }
-                else if let d = r.peer_display_name { name = d }
-                else { name = r.title ?? "Chat" }
+                else if let pid = r.peer_id { name = String(pid.prefix(8)) }
+                else { name = r.title ?? "chat" }
                 let chat = LocalChat(id: r.id, name: name, type: r.type)
                 storage.addChat(chat)
                 merged.insert(chat, at: 0)
@@ -92,7 +92,7 @@ final class HomeViewModel: ObservableObject {
     }
 
     func openChat(with friend: TonesUser) async throws -> LocalChat {
-        let name = friend.username.map { "@\($0)" } ?? friend.displayName
+        let name = friend.username.map { "@\($0)" } ?? "user"
         return try await createDM(with: friend.id, friendName: name)
     }
 }

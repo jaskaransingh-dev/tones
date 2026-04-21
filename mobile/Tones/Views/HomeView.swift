@@ -1,5 +1,6 @@
 import SwiftUI
 import Contacts
+import ContactsUI
 import UniformTypeIdentifiers
 
 struct HomeView: View {
@@ -173,7 +174,7 @@ struct HomeView: View {
     }
 
     private func friendChip(_ friend: TonesUser) -> some View {
-        let name = friend.username ?? friend.displayName
+        let name = friend.username ?? "user"
         let initial = String(name.prefix(1)).uppercased()
         let isOpening = openingFriendId == friend.id
         return Button(action: { openFriend(friend) }) {
@@ -313,8 +314,7 @@ struct AddFriendView: View {
     @State private var addError: String?
     @State private var isAdding = false
     @State private var showingShare = false
-    @State private var contactsFriends: [TonesUser] = []
-    @State private var isLoadingContacts = false
+    @State private var showingContactPicker = false
 
     var body: some View {
         NavigationStack {
@@ -401,16 +401,11 @@ struct AddFriendView: View {
                             }
                         }
 
-                        Button(action: loadContacts) {
+                        Button(action: { showingContactPicker = true }) {
                             HStack(spacing: 10) {
-                                if isLoadingContacts {
-                                    ProgressView()
-                                        .tint(Color.warmCoral)
-                                } else {
-                                    Image(systemName: "person.2.circle")
-                                        .font(.system(size: 16, weight: .medium))
-                                }
-                                Text("find from contacts")
+                                Image(systemName: "person.2.circle")
+                                    .font(.system(size: 16, weight: .medium))
+                                Text("invite from contacts")
                                     .font(.system(size: 15, weight: .medium))
                             }
                             .foregroundStyle(Color.warmDark)
@@ -419,49 +414,11 @@ struct AddFriendView: View {
                             .background(Color.white.opacity(0.85))
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
-
-                        if !contactsFriends.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("from your contacts")
-                                    .font(.system(size: 12, weight: .medium))
-.foregroundStyle(Color.warmBrown.opacity(0.7))
-                    .tracking(2)
-                    .textCase(.uppercase)
-
-                                ForEach(contactsFriends) { friend in
-                                    Button(action: { addContactFriend(friend) }) {
-                                        HStack(spacing: 12) {
-                                            Circle()
-                                                .fill(Color.warmPeach)
-                                                .frame(width: 40, height: 40)
-                                                .overlay(
-                                                    Text(String((friend.username ?? friend.displayName).prefix(1)).uppercased())
-                                                        .font(.system(size: 16, weight: .light))
-                                                        .foregroundStyle(Color.warmCoral)
-                                                )
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                if let u = friend.username {
-                                                    Text("@\(u)")
-                                                        .font(.system(size: 15, weight: .medium))
-                                                        .foregroundStyle(Color.warmDark)
-                                                }
-                                                Text(friend.displayName)
-                                                    .font(.system(size: 12, weight: .light))
-                                                    .foregroundStyle(Color.warmBrown.opacity(0.8))
-                                            }
-                                            Spacer()
-                                            Image(systemName: "plus.circle.fill")
-                                                .font(.system(size: 20))
-                                                .foregroundStyle(Color.warmCoral)
-                                        }
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 10)
-.background(Color.white.opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
-                                }
+                        .sheet(isPresented: $showingContactPicker) {
+                            ContactPickerView { contact in
+                                handlePickedContact(contact)
                             }
+                            .ignoresSafeArea()
                         }
                     }
                     .padding(.horizontal, 28)
@@ -485,7 +442,7 @@ struct AddFriendView: View {
         Task {
             do {
                 let user = try await viewModel.addFriend(byUsername: username)
-                let friendName = user.username.map { "@\($0)" } ?? user.displayName
+                let friendName = user.username.map { "@\($0)" } ?? "user"
                 _ = try await viewModel.createDM(with: user.id, friendName: friendName)
                 let haptic = UINotificationFeedbackGenerator()
                 haptic.notificationOccurred(.success)
@@ -497,58 +454,42 @@ struct AddFriendView: View {
         }
     }
 
-    private func loadContacts() {
-        isLoadingContacts = true
-        Task {
-            let phoneNumbers = await fetchPhoneNumbers()
-            var found: [TonesUser] = []
-            for phone in phoneNumbers.prefix(20) {
-                do {
-                    let users = try await APIClient.shared.searchUsers(query: phone)
-                    found.append(contentsOf: users)
-                } catch { }
-            }
-            let existingFriendIds = Set(viewModel.friends.map { $0.id })
-            contactsFriends = found.filter { !existingFriendIds.contains($0.id) && $0.id != authService.currentUser?.id }
-            isLoadingContacts = false
+    private func handlePickedContact(_ contact: CNContact) {
+        showingContactPicker = false
+        guard let phone = contact.phoneNumbers.first?.value.stringValue else {
+            addError = "That contact has no phone number."
+            return
         }
+        let digits = phone.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+        let myHandle = authService.currentUser?.username.map { "@\($0)" } ?? ""
+        let body = "hey, add me on tones \(myHandle) https://apps.apple.com/app/tones"
+        guard let encoded = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "sms:\(digits)&body=\(encoded)") else { return }
+        UIApplication.shared.open(url)
+    }
+}
+
+struct ContactPickerView: UIViewControllerRepresentable {
+    let onPick: (CNContact) -> Void
+
+    func makeUIViewController(context: Context) -> CNContactPickerViewController {
+        let picker = CNContactPickerViewController()
+        picker.displayedPropertyKeys = [CNContactPhoneNumbersKey]
+        picker.predicateForEnablingContact = NSPredicate(format: "phoneNumbers.@count > 0")
+        picker.delegate = context.coordinator
+        return picker
     }
 
-    private func addContactFriend(_ friend: TonesUser) {
-        Task {
-            do {
-                try await APIClient.shared.addFriend(friendId: friend.id)
-                let name = friend.username.map { "@\($0)" } ?? friend.displayName
-                _ = try await viewModel.createDM(with: friend.id, friendName: name)
-                await viewModel.loadFriends()
-                contactsFriends.removeAll { $0.id == friend.id }
-                let haptic = UINotificationFeedbackGenerator()
-                haptic.notificationOccurred(.success)
-            } catch {
-                addError = error.localizedDescription
-            }
-        }
-    }
+    func updateUIViewController(_ controller: CNContactPickerViewController, context: Context) {}
 
-    private func fetchPhoneNumbers() async -> [String] {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let store = CNContactStore()
-                var numbers: [String] = []
-                let keys = [CNContactPhoneNumbersKey as CNKeyDescriptor]
-                let request = CNContactFetchRequest(keysToFetch: keys)
-                do {
-                    try store.enumerateContacts(with: request) { contact, stop in
-                        for phone in contact.phoneNumbers {
-                            let digits = phone.value.stringValue.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-                            if digits.count >= 7 {
-                                numbers.append(digits)
-                            }
-                        }
-                    }
-                } catch { }
-                continuation.resume(returning: numbers)
-            }
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    final class Coordinator: NSObject, CNContactPickerDelegate {
+        let onPick: (CNContact) -> Void
+        init(onPick: @escaping (CNContact) -> Void) { self.onPick = onPick }
+
+        func contactPicker(_ picker: CNContactPickerViewController, didSelect contact: CNContact) {
+            onPick(contact)
         }
     }
 }

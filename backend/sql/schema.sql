@@ -4,16 +4,13 @@
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     apple_sub TEXT UNIQUE,
-    phone_number TEXT UNIQUE,
     username TEXT UNIQUE,
-    display_name TEXT NOT NULL,
     avatar_url TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_apple_sub ON users(apple_sub);
-CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
 -- Sessions table (for refresh tokens)

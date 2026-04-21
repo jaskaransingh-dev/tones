@@ -16,6 +16,10 @@ final class APIClient {
         self.authToken = token
     }
 
+    func clearAuthToken() {
+        self.authToken = nil
+    }
+
     private func authedReq(_ url: URL) -> URLRequest {
         var req = URLRequest(url: url)
         if let token = authToken {

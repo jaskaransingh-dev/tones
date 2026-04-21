@@ -9,6 +9,7 @@ export interface Env {
 	DB: D1Database;
 	SESSIONS: KVNamespace;
 	APPLE_CLIENT_ID: string;
+	PUSH_PRIVATE_KEY: string;
 }
 
 const cors = {
@@ -31,6 +32,9 @@ export default {
 			if (path === '/auth/apple' && method === 'POST') {
 				return await handleAppleAuth(request, env);
 			}
+			if (path === '/auth/demo' && method === 'POST') {
+				return await handleDemoAuth(request, env);
+			}
 			if (path === '/auth/login' && method === 'POST') {
 				return await handleLoginByUsername(request, env);
 			}
@@ -45,6 +49,9 @@ export default {
 			}
 			if (path === '/auth/username' && method === 'POST') {
 				return await handleSetUsername(request, env);
+			}
+			if (path === '/auth/push-token' && method === 'POST') {
+				return await handlePushToken(request, env);
 			}
 			if (path === '/users/search' && method === 'GET') {
 				return await handleUserSearch(request, env);
@@ -71,7 +78,7 @@ export default {
 				return await handleListMessages(request, env, chatMsgMatch[1]);
 			}
 			if (chatMsgMatch && method === 'POST') {
-				return await handleSendMessage(request, env, chatMsgMatch[1]);
+				return await handleSendMessage(request, env, ctx, chatMsgMatch[1]);
 			}
 
 			return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
@@ -97,12 +104,11 @@ function getAuthUser(request: Request): { userId: string } | null {
 	}
 }
 
-function formatUser(user: { id: string; apple_sub: string | null; username: string | null; display_name: string; avatar_url: string | null; created_at: number; updated_at: number }) {
+function formatUser(user: { id: string; apple_sub: string | null; username: string | null; avatar_url: string | null; created_at: number; updated_at: number }) {
 	return {
 		id: user.id,
 		apple_sub: user.apple_sub,
 		username: user.username,
-		display_name: user.display_name,
 		avatar_url: user.avatar_url,
 		created_at: user.created_at,
 		last_active_at: user.updated_at,
@@ -118,6 +124,41 @@ async function createSession(userId: string, env: Env): Promise<{ access_token: 
 	return { access_token: accessToken, refresh_token: refreshToken };
 }
 
+async function handleDemoAuth(request: Request, env: Env): Promise<Response> {
+	const { username } = (await request.json()) as { username: string };
+	const cleaned = username.toLowerCase().replace(/[^a-z0-9._]/g, '');
+	if (!cleaned || cleaned.length < 3 || cleaned.length > 20) {
+		return new Response(JSON.stringify({ error: 'Username must be 3-20 characters (letters, numbers, . _)' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	let user = await env.DB.prepare(
+		'SELECT id, apple_sub, username, avatar_url, created_at, updated_at FROM users WHERE username = ?'
+	).bind(cleaned).first<{ id: string; apple_sub: string | null; username: string | null; avatar_url: string | null; created_at: number; updated_at: number }>();
+
+	if (user) {
+		const tokens = await createSession(user.id, env);
+		return new Response(JSON.stringify({
+			user: formatUser(user),
+			access_token: tokens.access_token,
+			refresh_token: tokens.refresh_token,
+		}), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const userId = crypto.randomUUID();
+	await env.DB.prepare(
+		'INSERT INTO users (id, apple_sub, username, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+	).bind(userId, null, cleaned, Date.now(), Date.now()).run();
+
+	user = { id: userId, apple_sub: null as string | null, username: cleaned as string | null, avatar_url: null as string | null, created_at: Date.now(), updated_at: Date.now() };
+	const tokens = await createSession(userId, env);
+
+	return new Response(JSON.stringify({
+		user: formatUser(user),
+		access_token: tokens.access_token,
+		refresh_token: tokens.refresh_token,
+	}), { status: 201, headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
 async function handleLoginByUsername(request: Request, env: Env): Promise<Response> {
 	const { username } = (await request.json()) as { username: string };
 	if (!username || username.length < 3) {
@@ -127,8 +168,8 @@ async function handleLoginByUsername(request: Request, env: Env): Promise<Respon
 	const normalized = username.toLowerCase().replace(/[^a-z0-9._]/g, '');
 
 	const user = await env.DB.prepare(
-		'SELECT id, apple_sub, username, display_name, avatar_url, created_at, updated_at FROM users WHERE username = ?'
-	).bind(normalized).first<{ id: string; apple_sub: string; username: string | null; display_name: string; avatar_url: string | null; created_at: number; updated_at: number }>();
+		'SELECT id, apple_sub, username, avatar_url, created_at, updated_at FROM users WHERE username = ?'
+	).bind(normalized).first<{ id: string; apple_sub: string | null; username: string | null; avatar_url: string | null; created_at: number; updated_at: number }>();
 
 	if (!user) {
 		return new Response(JSON.stringify({ error: 'User not found. Create an account first.' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
@@ -144,11 +185,11 @@ async function handleLoginByUsername(request: Request, env: Env): Promise<Respon
 }
 
 async function handleRegisterByUsername(request: Request, env: Env): Promise<Response> {
-	const { username, display_name } = (await request.json()) as { username: string; display_name?: string };
+	const { username } = (await request.json()) as { username: string };
 
 	const cleaned = username.toLowerCase().replace(/[^a-z0-9._]/g, '');
 	if (!cleaned || cleaned.length < 3 || cleaned.length > 20) {
-		return new Response(JSON.stringify({ error: 'Username must be 3-20 characters (letters, numbers, . _) ' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+		return new Response(JSON.stringify({ error: 'Username must be 3-20 characters (letters, numbers, . _)' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
 	const taken = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(cleaned).first();
@@ -157,12 +198,11 @@ async function handleRegisterByUsername(request: Request, env: Env): Promise<Res
 	}
 
 	const userId = crypto.randomUUID();
-	const name = display_name || '@' + cleaned;
 	await env.DB.prepare(
-		'INSERT INTO users (id, apple_sub, username, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-	).bind(userId, null, cleaned, name, Date.now(), Date.now()).run();
+		'INSERT INTO users (id, apple_sub, username, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+	).bind(userId, null, cleaned, Date.now(), Date.now()).run();
 
-	const user = { id: userId, apple_sub: null as string | null, username: cleaned as string | null, display_name: name, avatar_url: null as string | null, created_at: Date.now(), updated_at: Date.now() };
+	const user = { id: userId, apple_sub: null as string | null, username: cleaned as string | null, avatar_url: null as string | null, created_at: Date.now(), updated_at: Date.now() };
 	const tokens = await createSession(userId, env);
 
 	return new Response(JSON.stringify({
@@ -174,30 +214,23 @@ async function handleRegisterByUsername(request: Request, env: Env): Promise<Res
 
 async function handleAppleAuth(request: Request, env: Env): Promise<Response> {
 	try {
-		const body = (await request.json()) as { apple_token: string; display_name?: string };
+		const body = (await request.json()) as { apple_token: string };
 		const appleSub = await verifyAppleToken(body.apple_token, env.APPLE_CLIENT_ID);
 		if (!appleSub) {
 			return new Response(JSON.stringify({ error: 'Invalid Apple token' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
 		}
 
-		const displayName = body.display_name || 'Tones User';
-
 		let user = await env.DB.prepare(
-			'SELECT id, apple_sub, username, display_name, avatar_url, created_at, updated_at FROM users WHERE apple_sub = ?'
-		).bind(appleSub).first<{ id: string; apple_sub: string; username: string | null; display_name: string; avatar_url: string | null; created_at: number; updated_at: number }>();
+			'SELECT id, apple_sub, username, avatar_url, created_at, updated_at FROM users WHERE apple_sub = ?'
+		).bind(appleSub).first<{ id: string; apple_sub: string; username: string | null; avatar_url: string | null; created_at: number; updated_at: number }>();
 
 		if (!user) {
 			const userId = crypto.randomUUID();
 			await env.DB.prepare(
-				'INSERT INTO users (id, apple_sub, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-			).bind(userId, appleSub, displayName, Date.now(), Date.now()).run();
+				'INSERT INTO users (id, apple_sub, created_at, updated_at) VALUES (?, ?, ?, ?)'
+			).bind(userId, appleSub, Date.now(), Date.now()).run();
 
-			user = { id: userId, apple_sub: appleSub, username: null, display_name: displayName, avatar_url: null, created_at: Date.now(), updated_at: Date.now() };
-		} else if (displayName && displayName !== 'Tones User' && user.display_name === 'Tones User') {
-			await env.DB.prepare(
-				'UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?'
-			).bind(displayName, Date.now(), user.id).run();
-			user = { ...user, display_name: displayName, updated_at: Date.now() };
+			user = { id: userId, apple_sub: appleSub, username: null as string | null, avatar_url: null as string | null, created_at: Date.now(), updated_at: Date.now() };
 		}
 
 		const tokens = await createSession(user.id, env);
@@ -224,8 +257,8 @@ async function handleRefresh(request: Request, env: Env): Promise<Response> {
 	}
 
 	const user = await env.DB.prepare(
-		'SELECT id, username, display_name FROM users WHERE id = ?'
-	).bind(session.user_id).first<{ id: string; username: string; display_name: string }>();
+		'SELECT id, username FROM users WHERE id = ?'
+	).bind(session.user_id).first<{ id: string; username: string }>();
 
 	const accessToken = createAccessToken(user!.id, 'tones-secret');
 	const newRefreshToken = crypto.randomUUID();
@@ -247,22 +280,14 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
 	}
 
 	const user = await env.DB.prepare(
-		'SELECT id, apple_sub, username, display_name, avatar_url, created_at, updated_at FROM users WHERE id = ?'
-	).bind(auth.userId).first<{ id: string; apple_sub: string; username: string | null; display_name: string; avatar_url: string | null; created_at: number; updated_at: number }>();
+		'SELECT id, apple_sub, username, avatar_url, created_at, updated_at FROM users WHERE id = ?'
+	).bind(auth.userId).first<{ id: string; apple_sub: string; username: string | null; avatar_url: string | null; created_at: number; updated_at: number }>();
 
 	if (!user) {
 		return new Response(JSON.stringify({ error: 'User not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
-	return new Response(JSON.stringify({
-		id: user.id,
-		apple_sub: user.apple_sub,
-		username: user.username,
-		display_name: user.display_name,
-		avatar_url: user.avatar_url,
-		created_at: user.created_at,
-		last_active_at: user.updated_at,
-	}), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	return new Response(JSON.stringify(formatUser(user)), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
 async function handleSetUsername(request: Request, env: Env): Promise<Response> {
@@ -298,10 +323,10 @@ async function handleSetUsername(request: Request, env: Env): Promise<Response> 
 	}
 
 	await env.DB.prepare(
-		'UPDATE users SET username = ?, display_name = ?, updated_at = ? WHERE id = ?'
-	).bind(normalizedUsername, '@' + normalizedUsername, Date.now(), auth.userId).run();
+		'UPDATE users SET username = ?, updated_at = ? WHERE id = ?'
+	).bind(normalizedUsername, Date.now(), auth.userId).run();
 
-	return new Response(JSON.stringify({ username: normalizedUsername, display_name: '@' + normalizedUsername }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	return new Response(JSON.stringify({ username: normalizedUsername }), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
 async function getSuggestions(env: Env, base: string): Promise<string[]> {
@@ -317,6 +342,63 @@ async function getSuggestions(env: Env, base: string): Promise<string[]> {
 	}
 
 	return suggestions;
+}
+
+async function handlePushToken(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) {
+		return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const { push_token, platform } = (await request.json()) as { push_token: string; platform?: string };
+	if (!push_token) {
+		return new Response(JSON.stringify({ error: 'push_token required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	await env.DB.prepare(
+		'INSERT OR REPLACE INTO push_tokens (user_id, push_token, platform, updated_at) VALUES (?, ?, ?, ?)'
+	).bind(auth.userId, push_token, platform || 'ios', Date.now()).run();
+
+	return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function sendPushNotification(recipientUserId: string, senderUsername: string | null, chatId: string, env: Env): Promise<void> {
+	const rows = await env.DB.prepare(
+		'SELECT push_token, platform FROM push_tokens WHERE user_id = ?'
+	).bind(recipientUserId).all<{ push_token: string; platform: string }>();
+
+	if (!rows.results || rows.results.length === 0) return;
+
+	const senderName = senderUsername ? `@${senderUsername}` : 'someone';
+	const payload = JSON.stringify({
+		aps: {
+			alert: {
+				title: senderName,
+				body: 'sent you a tone 🎵',
+			},
+			sound: 'default',
+			'mutable-content': 1,
+		},
+		chatId: chatId,
+		senderId: recipientUserId,
+	});
+
+	for (const row of rows.results) {
+		try {
+			const pushUrl = 'https://api.push.apple.com/1/device/' + row.push_token;
+			await fetch(pushUrl, {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					'apns-topic': 'tonesapp.Tones',
+					'apns-push-type': 'alert',
+					'apns-priority': '10',
+				},
+				body: payload,
+			});
+		} catch {
+		}
+	}
 }
 
 async function verifyAppleToken(identityToken: string, clientId: string): Promise<string | null> {
@@ -363,16 +445,16 @@ async function handleUserSearch(request: Request, env: Env): Promise<Response> {
 	}
 
 	const exactUser = await env.DB.prepare(
-		'SELECT id, username, display_name FROM users WHERE LOWER(username) = LOWER(?) AND id != ?'
-	).bind(q, auth.userId).first<{ id: string; username: string; display_name: string }>();
+		'SELECT id, username FROM users WHERE LOWER(username) = LOWER(?) AND id != ?'
+	).bind(q, auth.userId).first<{ id: string; username: string }>();
 
 	if (exactUser) {
 		return new Response(JSON.stringify([exactUser]), { headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
 	const users = await env.DB.prepare(
-		'SELECT id, username, display_name FROM users WHERE username LIKE ? AND id != ? LIMIT 20'
-	).bind(q.toLowerCase() + '%', auth.userId).all<{ id: string; username: string; display_name: string }>();
+		'SELECT id, username FROM users WHERE username LIKE ? AND id != ? LIMIT 20'
+	).bind(q.toLowerCase() + '%', auth.userId).all<{ id: string; username: string }>();
 
 	return new Response(JSON.stringify(users.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
@@ -384,16 +466,16 @@ async function handleListFriends(request: Request, env: Env): Promise<Response> 
 	}
 
 	const friends = await env.DB.prepare(
-		`SELECT u.id, u.username, u.display_name, u.avatar_url 
+		`SELECT u.id, u.username, u.avatar_url 
 		 FROM friends f 
 		 JOIN users u ON u.id = f.friend_id 
 		 WHERE f.user_id = ?
 		 UNION
-		 SELECT u.id, u.username, u.display_name, u.avatar_url 
+		 SELECT u.id, u.username, u.avatar_url 
 		 FROM friends f 
 		 JOIN users u ON u.id = f.user_id 
 		 WHERE f.friend_id = ?`
-	).bind(auth.userId, auth.userId).all<{ id: string; username: string | null; display_name: string; avatar_url: string | null }>();
+	).bind(auth.userId, auth.userId).all<{ id: string; username: string | null; avatar_url: string | null }>();
 
 	return new Response(JSON.stringify(friends.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
@@ -410,7 +492,6 @@ async function handleAddFriend(request: Request, env: Env): Promise<Response> {
 		return new Response(JSON.stringify({ error: 'friend_id required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
-	// Check if friend exists
 	const friendExists = await env.DB.prepare(
 		'SELECT id FROM users WHERE id = ?'
 	).bind(friend_id).first<{ id: string }>();
@@ -419,7 +500,6 @@ async function handleAddFriend(request: Request, env: Env): Promise<Response> {
 		return new Response(JSON.stringify({ error: 'User not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
-	// Check if already friends
 	const alreadyFriends = await env.DB.prepare(
 		'SELECT id FROM friends WHERE user_id = ? AND friend_id = ?'
 	).bind(auth.userId, friend_id).first();
@@ -428,7 +508,6 @@ async function handleAddFriend(request: Request, env: Env): Promise<Response> {
 		return new Response(JSON.stringify({ error: 'Already friends' }), { status: 409, headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
-	// Add friend (bidirectional, but skip self-add for second direction)
 	await env.DB.prepare(
 		'INSERT INTO friends (id, user_id, friend_id, created_at) VALUES (?, ?, ?, ?)'
 	).bind(crypto.randomUUID(), auth.userId, friend_id, Date.now()).run();
@@ -448,7 +527,6 @@ async function handleCreateDM(request: Request, env: Env): Promise<Response> {
 	const { friend_id } = (await request.json()) as { friend_id: string };
 	if (!friend_id) return new Response(JSON.stringify({ error: 'friend_id required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
 
-	// Find existing DM where both users are members
 	const existing = await env.DB.prepare(
 		`SELECT c.id FROM chats c
 		 JOIN chat_members m1 ON m1.chat_id = c.id AND m1.user_id = ?
@@ -479,15 +557,13 @@ async function handleListChats(request: Request, env: Env): Promise<Response> {
 		`SELECT c.id, c.type, c.title, c.updated_at,
 		 (SELECT u.username FROM chat_members cm JOIN users u ON u.id = cm.user_id
 		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_username,
-		 (SELECT u.display_name FROM chat_members cm JOIN users u ON u.id = cm.user_id
-		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_display_name,
 		 (SELECT u.id FROM chat_members cm JOIN users u ON u.id = cm.user_id
 		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_id
 		 FROM chats c
 		 JOIN chat_members m ON m.chat_id = c.id
 		 WHERE m.user_id = ?
 		 ORDER BY c.updated_at DESC`
-	).bind(auth.userId, auth.userId, auth.userId, auth.userId).all();
+	).bind(auth.userId, auth.userId, auth.userId).all();
 
 	return new Response(JSON.stringify(chats.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
@@ -503,7 +579,7 @@ async function handleListMessages(request: Request, env: Env, chatId: string): P
 
 	const messages = await env.DB.prepare(
 		`SELECT m.id, m.chat_id, m.sender_id, m.audio_base64, m.duration_ms, m.created_at,
-		 u.display_name as sender_name, u.username as sender_username
+		 u.username as sender_username
 		 FROM messages m JOIN users u ON u.id = m.sender_id
 		 WHERE m.chat_id = ? AND m.created_at > ?
 		 ORDER BY m.created_at ASC`
@@ -512,7 +588,7 @@ async function handleListMessages(request: Request, env: Env, chatId: string): P
 	return new Response(JSON.stringify(messages.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
-async function handleSendMessage(request: Request, env: Env, chatId: string): Promise<Response> {
+async function handleSendMessage(request: Request, env: Env, ctx: ExecutionContext, chatId: string): Promise<Response> {
 	const auth = getAuthUser(request);
 	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
 
@@ -530,6 +606,17 @@ async function handleSendMessage(request: Request, env: Env, chatId: string): Pr
 	).bind(messageId, chatId, auth.userId, audio_base64, duration_ms, now).run();
 
 	await env.DB.prepare('UPDATE chats SET updated_at = ? WHERE id = ?').bind(now, chatId).run();
+
+	const members = await env.DB.prepare(
+		'SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?'
+	).bind(chatId, auth.userId).all<{ user_id: string }>();
+
+	if (members.results && members.results.length > 0) {
+		const sender = await env.DB.prepare(
+			'SELECT username FROM users WHERE id = ?'
+		).bind(auth.userId).first<{ username: string | null }>();
+		ctx.waitUntil(sendPushNotification(members.results[0].user_id, sender?.username ?? null, chatId, env));
+	}
 
 	return new Response(JSON.stringify({ id: messageId, created_at: now }), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
