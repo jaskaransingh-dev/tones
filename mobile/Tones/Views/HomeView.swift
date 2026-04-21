@@ -447,6 +447,8 @@ struct AddFriendView: View {
                 let haptic = UINotificationFeedbackGenerator()
                 haptic.notificationOccurred(.success)
                 dismiss()
+            } catch let error as TonesAuthError {
+                addError = error.message
             } catch {
                 addError = error.localizedDescription
             }

@@ -129,6 +129,17 @@ final class AuthService: ObservableObject {
         }
     }
 
+    func didRegisterForRemoteNotifications(deviceToken: Data) {
+        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        Task {
+            do {
+                try await APIClient.shared.registerPushToken(token)
+            } catch {
+                print("Failed to register push token: \(error)")
+            }
+        }
+    }
+
     func refreshSession() async throws {
         guard let refreshToken = keychain.getRefreshToken() else { return }
 

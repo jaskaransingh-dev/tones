@@ -102,6 +102,17 @@ final class APIClient {
         try validate(resp: resp, data: Data())
     }
 
+    func registerPushToken(_ pushToken: String, platform: String = "ios") async throws {
+        let url = baseURL.appendingPathComponent("auth/push-token")
+        var req = authedReq(url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["push_token": pushToken, "platform": platform])
+
+        let (_, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: Data())
+    }
+
     private func validate(resp: URLResponse, data: Data) throws {
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"

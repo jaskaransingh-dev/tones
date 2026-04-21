@@ -44,9 +44,9 @@ struct ChatView: View {
                     .zIndex(3)
             }
         }
-        .animation(.easeInOut(duration: 0.22), value: isRecording)
-        .animation(.easeInOut(duration: 0.22), value: playingIndex)
-        .animation(.easeInOut(duration: 0.18), value: isConnecting)
+        .animation(.easeInOut(duration: 0.15), value: isRecording)
+        .animation(.easeInOut(duration: 0.15), value: playingIndex)
+        .animation(.easeInOut(duration: 0.12), value: isConnecting)
         .navigationTitle(friendName.lowercased())
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -312,7 +312,7 @@ struct ChatView: View {
         guard let first = unheard.first,
               let idx = messages.firstIndex(where: { $0.id == first.id }) else { return }
         Task {
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            try? await Task.sleep(nanoseconds: 80_000_000)
             await MainActor.run {
                 playFrom(index: idx, autoRecordAfter: true, chain: true)
             }
@@ -343,7 +343,7 @@ struct ChatView: View {
         messages[index].heard = true
 
         audio.play(url: url, messageId: messages[index].id) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 let hasNext = index + 1 < self.messages.count
                 if chain && hasNext {
                     self.playFrom(index: index + 1, autoRecordAfter: autoRecordAfter, chain: chain)
@@ -354,7 +354,7 @@ struct ChatView: View {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             self.isConnecting = false
         }
     }
@@ -367,7 +367,7 @@ struct ChatView: View {
             do { try await recorder.startRecording() }
             catch { isRecording = false }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             self.isConnecting = false
         }
     }

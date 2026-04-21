@@ -74,7 +74,10 @@ final class HomeViewModel: ObservableObject {
     func addFriend(byUsername username: String) async throws -> TonesUser {
         let users = try await api.searchUsers(query: username)
         guard let user = users.first(where: { $0.username?.lowercased() == username.lowercased() }) else {
-            throw TonesAuthError(message: "User @\(username) not found. Make sure they have a username set.")
+            throw TonesAuthError(message: "@\(username) doesn't exist yet — tell them to get tones!")
+        }
+        if friends.contains(where: { $0.id == user.id }) {
+            throw TonesAuthError(message: "you're already friends with @\(username)")
         }
         try await api.addFriend(friendId: user.id)
         if !friends.contains(where: { $0.id == user.id }) {

@@ -69,3 +69,14 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
+
+-- Push notification tokens
+CREATE TABLE IF NOT EXISTS push_tokens (
+    user_id TEXT NOT NULL,
+    push_token TEXT PRIMARY KEY,
+    platform TEXT NOT NULL DEFAULT 'ios',
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id);
