@@ -64,7 +64,12 @@ struct HomeView: View {
             Task {
                 await viewModel.syncChats()
                 await viewModel.loadFriends()
+                viewModel.refreshUnreadCounts()
             }
+            viewModel.startPolling()
+        }
+        .onDisappear {
+            viewModel.stopPolling()
         }
     }
 
@@ -79,9 +84,10 @@ struct HomeView: View {
                 Circle()
                     .stroke(Color.warmCoral.opacity(0.18), lineWidth: 1)
                     .frame(width: 200, height: 200)
-                Image(systemName: "waveform")
-                    .font(.system(size: 50, weight: .ultraLight))
-                    .foregroundStyle(Color.warmCoral)
+                Image("TonesLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 56, height: 56)
             }
             VStack(spacing: 8) {
                 Text("say hi")
@@ -244,48 +250,61 @@ struct HomeView: View {
     }
 
     private func chatRow(chat: LocalChat) -> some View {
-        let msgCount = LocalStorage.shared.loadMessages(chat.id).count
-        let unheard = LocalStorage.shared.getUnheardCount(chatId: chat.id)
+        let unheard = chat.unreadCount
         return HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(Color.warmPeach)
+                    .fill(unheard > 0 ? Color.callGreen.opacity(0.15) : Color.warmPeach)
                     .frame(width: 50, height: 50)
                 Text(String(chat.name.replacingOccurrences(of: "@", with: "").prefix(1)).uppercased())
                     .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(Color.warmCoral)
+                    .foregroundStyle(unheard > 0 ? Color.callGreen : Color.warmCoral)
                 if unheard > 0 {
                     Circle()
                         .fill(Color.callGreen)
-                        .frame(width: 12, height: 12)
-                        .overlay(Circle().stroke(Color.warmCream, lineWidth: 2))
+                        .frame(width: 14, height: 14)
+                        .overlay(
+                            Text("\(unheard)")
+                                .font(.system(size: 8, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                        )
                         .offset(x: 18, y: -18)
                 }
             }
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(chat.name.lowercased())
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Color.warmDark)
+                    .font(.system(size: 16, weight: unheard > 0 ? .semibold : .medium))
+                    .foregroundStyle(unheard > 0 ? Color.warmDark : Color.warmDark)
                     .lineLimit(1)
                 Text(unheard > 0
                         ? "\(unheard) new \(unheard == 1 ? "tone" : "tones")"
-                        : (msgCount == 0 ? "tap to say hi" : "\(msgCount) \(msgCount == 1 ? "tone" : "tones")"))
-                    .font(.system(size: 12, weight: .light))
+                        : "\(LocalStorage.shared.loadMessages(chat.id).count) tones")
+                    .font(.system(size: 12, weight: unheard > 0 ? .medium : .light))
                     .foregroundStyle(unheard > 0 ? Color.callGreen : Color.warmBrown.opacity(0.8))
             }
 
             Spacer()
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.warmBrown.opacity(0.6))
+            if unheard > 0 {
+                Circle()
+                    .fill(Color.callGreen)
+                    .frame(width: 8, height: 8)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.warmBrown.opacity(0.6))
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 18)
-                .fill(Color.white.opacity(0.85))
+                .fill(unheard > 0 ? Color.callGreen.opacity(0.06) : Color.white.opacity(0.85))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(unheard > 0 ? Color.callGreen.opacity(0.3) : Color.clear, lineWidth: 1)
         )
     }
 
@@ -328,9 +347,10 @@ struct AddFriendView: View {
                                 Circle()
                                     .fill(Color.warmPeach.opacity(0.6))
                                     .frame(width: 100, height: 100)
-                                Image(systemName: "person.badge.plus")
-                                    .font(.system(size: 34, weight: .ultraLight))
-                                    .foregroundStyle(Color.warmCoral)
+                                Image("TonesLogo")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 50, height: 50)
                             }
                             Text("add a friend")
                                 .font(.system(size: 24, weight: .thin))
@@ -343,6 +363,7 @@ struct AddFriendView: View {
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                                 .font(.title3)
+                                .foregroundStyle(Color.warmDark)
                                 .multilineTextAlignment(.center)
                                 .padding()
                                 .background(Color.white.opacity(0.7))
@@ -526,9 +547,10 @@ struct SettingsSheet: View {
                                 Circle()
                                     .fill(Color.warmPeach.opacity(0.6))
                                     .frame(width: 110, height: 110)
-                                Text(String(username.prefix(1)).uppercased())
-                                    .font(.system(size: 42, weight: .thin))
-                                    .foregroundStyle(Color.warmCoral)
+                                Image("TonesLogo")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 55, height: 55)
                             }
                             Text("@\(username)")
                                 .font(.system(size: 22, weight: .medium))

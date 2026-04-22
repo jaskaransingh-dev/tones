@@ -69,7 +69,6 @@ struct ChatView: View {
             recorder.prewarm()
             Task {
                 await syncRemoteMessages()
-                checkForAutoPlay()
             }
         }
         .onDisappear {
@@ -108,6 +107,11 @@ struct ChatView: View {
                     Text(isMe ? "Y" : friendInitial)
                         .font(.system(size: 50, weight: .light))
                         .foregroundStyle(Color.warmCoral)
+                    Image("TonesLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 36, height: 36)
+                        .opacity(0.7)
                 }
                 .padding(.bottom, 28)
 

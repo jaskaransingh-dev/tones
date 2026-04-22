@@ -118,6 +118,11 @@ class LocalStorage {
         loadMessages(chatId).filter { !$0.heard }.count
     }
 
+    func totalUnreadCount() -> Int {
+        let chatIds = loadChats().map { $0.id }
+        return chatIds.reduce(0) { $0 + getUnheardCount(chatId: $1) }
+    }
+
     // MARK: - Sync State
 
     func lastSyncedAt(chatId: String) -> Int {
@@ -153,15 +158,17 @@ struct LocalChat: Codable, Identifiable {
     var type: String
     var createdAt: Int
     var updatedAt: Int
+    var unreadCount: Int
 
     var isGroup: Bool { type == "group" }
 
-    init(id: String = UUID().uuidString, name: String, type: String = "dm", createdAt: Int = Int(Date().timeIntervalSince1970), updatedAt: Int = Int(Date().timeIntervalSince1970)) {
+    init(id: String = UUID().uuidString, name: String, type: String = "dm", createdAt: Int = Int(Date().timeIntervalSince1970), updatedAt: Int = Int(Date().timeIntervalSince1970), unreadCount: Int = 0) {
         self.id = id
         self.name = name
         self.type = type
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.unreadCount = unreadCount
     }
 }
 

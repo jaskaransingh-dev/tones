@@ -19,6 +19,11 @@ struct TonesApp: App {
                     if let user = authService.currentUser {
                         if user.hasUsername {
                             HomeView()
+                                .onAppear {
+                                    if let chatId = notificationRouter.pendingChatId {
+                                        notificationRouter.pendingChatId = nil
+                                    }
+                                }
                         } else {
                             SetUsernameView()
                         }
@@ -35,6 +40,9 @@ struct TonesApp: App {
         let coralUIColor = UIColor(red: 1.0, green: 0.6, blue: 0.55, alpha: 1.0)
         UINavigationBar.appearance().tintColor = coralUIColor
         UITextField.appearance(whenContainedInInstancesOf: [UITextField.self]).tintColor = coralUIColor
+        let tabBarAppearance = UITabBarAppearance()
+        tabBarAppearance.configureWithDefaultBackground()
+        UITabBar.appearance().standardAppearance = tabBarAppearance
     }
 }
 

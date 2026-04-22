@@ -42,6 +42,7 @@ struct SetUsernameView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.title3)
+                        .foregroundStyle(Color.warmDark)
                         .multilineTextAlignment(.center)
                         .padding()
                         .background(Color.white.opacity(0.85))

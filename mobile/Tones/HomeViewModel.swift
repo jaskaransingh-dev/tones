@@ -9,12 +9,90 @@ final class HomeViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var searchResults: [TonesUser] = []
     @Published var isSearching = false
+    @Published var totalUnreadCount: Int = 0
 
     private let storage = LocalStorage.shared
     private let api = APIClient.shared
+    private var pollTimer: Timer?
 
     func loadChats() {
         chats = storage.loadChats()
+        refreshUnreadCounts()
+    }
+
+    func startPolling() {
+        stopPolling()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.pollForNewMessages()
+            }
+        }
+        Task { await pollForNewMessages() }
+    }
+
+    func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    private func pollForNewMessages() async {
+        await syncChats()
+        for chat in chats {
+            await syncNewMessages(for: chat.id)
+        }
+        refreshUnreadCounts()
+    }
+
+    private func syncNewMessages(for chatId: String) async {
+        let since = storage.lastSyncedAt(chatId: chatId)
+        do {
+            let remote = try await api.listMessages(chatId: chatId, since: since)
+            guard !remote.isEmpty else { return }
+            let existingIds = Set(storage.loadMessages(chatId).map { $0.id })
+            var latestTs = since
+            var hasNew = false
+            for r in remote {
+                latestTs = max(latestTs, r.created_at)
+                guard !existingIds.contains(r.id) else { continue }
+                guard let data = Data(base64Encoded: r.audio_base64) else { continue }
+                let fileName = "\(chatId)_\(r.id).m4a"
+                let destDir = storage.documentsPath.appendingPathComponent("audio", isDirectory: true)
+                let destURL = destDir.appendingPathComponent(fileName)
+                try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+                try? data.write(to: destURL)
+                let myId = AuthService.shared.currentUser?.id ?? ""
+                let senderName = r.sender_username.map { "@\($0)" } ?? "user"
+                let msg = LocalMessage(
+                    id: r.id,
+                    chatId: chatId,
+                    senderId: r.sender_id,
+                    senderName: senderName,
+                    audioPath: "audio/\(fileName)",
+                    duration: Double(r.duration_ms) / 1000.0,
+                    createdAt: r.created_at / 1000,
+                    heard: r.sender_id == myId
+                )
+                storage.addMessage(msg)
+                hasNew = true
+            }
+            storage.setLastSyncedAt(chatId: chatId, ts: latestTs)
+            if hasNew {
+                UNUserNotificationCenter.current().setBadgeCount(storage.totalUnreadCount())
+            }
+        } catch {
+            print("syncNewMessages failed: \(error)")
+        }
+    }
+
+    func refreshUnreadCounts() {
+        var total = 0
+        for i in chats.indices {
+            let count = storage.getUnheardCount(chatId: chats[i].id)
+            chats[i].unreadCount = count
+            total += count
+        }
+        totalUnreadCount = total
+        UNUserNotificationCenter.current().setBadgeCount(total)
     }
 
     func createDM(with friendId: String, friendName: String) async throws -> LocalChat {
@@ -55,6 +133,7 @@ final class HomeViewModel: ObservableObject {
     func deleteChat(_ chatId: String) {
         storage.deleteChat(chatId)
         chats.removeAll { $0.id == chatId }
+        refreshUnreadCounts()
     }
 
     func searchUsers(query: String) async {
@@ -84,14 +163,6 @@ final class HomeViewModel: ObservableObject {
             friends.insert(user, at: 0)
         }
         return user
-    }
-
-    func loadFriends() async {
-        do {
-            friends = try await api.listFriends()
-        } catch {
-            print("loadFriends failed: \(error)")
-        }
     }
 
     func openChat(with friend: TonesUser) async throws -> LocalChat {

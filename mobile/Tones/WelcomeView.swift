@@ -24,9 +24,10 @@ struct WelcomeView: View {
                             .frame(width: 130, height: 130)
                             .scaleEffect(authService.isLoading ? 1.06 : 1.0)
                             .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: authService.isLoading)
-                        Image(systemName: "waveform")
-                            .font(.system(size: 46, weight: .ultraLight))
-                            .foregroundStyle(Color.warmCoral)
+                        Image("TonesLogo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 72, height: 72)
                     }
 
                     Text("tones")
@@ -60,6 +61,7 @@ struct WelcomeView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(Color.warmDark)
                         .multilineTextAlignment(.center)
                         .padding(.vertical, 15)
                         .padding(.horizontal, 16)
