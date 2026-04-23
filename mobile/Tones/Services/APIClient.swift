@@ -64,6 +64,19 @@ final class APIClient {
         return result.id
     }
 
+    func updateGroupChat(chatId: String, title: String?, avatarData: String?) async throws -> UpdateGroupResponse {
+        let url = baseURL.appendingPathComponent("chats/\(chatId)")
+        var req = authedReq(url)
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String?] = ["title": title, "avatar_data": avatarData]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+        return try JSONDecoder().decode(UpdateGroupResponse.self, from: data)
+    }
+
     func listMessages(chatId: String, since: Int) async throws -> [RemoteMessage] {
         var components = URLComponents(url: baseURL.appendingPathComponent("chats/\(chatId)/messages"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "since", value: String(since))]

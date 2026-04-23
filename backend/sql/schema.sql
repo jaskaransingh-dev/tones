@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS chats (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL,
     title TEXT,
+    avatar_url TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
 );

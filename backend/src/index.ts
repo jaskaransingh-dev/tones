@@ -97,6 +97,10 @@ if (path === '/chats/group' && method === 'POST') {
 			if (chatMsgHeardMatch && method === 'POST') {
 				return await handleMarkHeard(request, env, chatMsgHeardMatch[1]);
 			}
+			const chatUpdateMatch = path.match(/^\/chats\/([^/]+)$/);
+			if (chatUpdateMatch && method === 'PUT') {
+				return await handleUpdateChat(request, env, chatUpdateMatch[1]);
+			}
 
 			return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
 		} catch (e) {
@@ -716,7 +720,7 @@ async function handleListChats(request: Request, env: Env): Promise<Response> {
 	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
 
 	const chats = await env.DB.prepare(
-		`SELECT c.id, c.type, c.title, c.updated_at,
+		`SELECT c.id, c.type, c.title, c.avatar_url, c.updated_at,
 		 (SELECT u.username FROM chat_members cm JOIN users u ON u.id = cm.user_id
 		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_username,
 		 (SELECT u.id FROM chat_members cm JOIN users u ON u.id = cm.user_id
@@ -809,6 +813,63 @@ async function handleSendMessage(request: Request, env: Env, ctx: ExecutionConte
 	}
 
 	return new Response(JSON.stringify({ id: messageId, created_at: now }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleUpdateChat(request: Request, env: Env, chatId: string): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const member = await env.DB.prepare('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').bind(chatId, auth.userId).first();
+	if (!member) return new Response(JSON.stringify({ error: 'Not a member' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const chat = await env.DB.prepare('SELECT id, type, title FROM chats WHERE id = ?').bind(chatId).first<{ id: string; type: string; title: string | null }>();
+	if (!chat) return new Response(JSON.stringify({ error: 'Chat not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
+	if (chat.type !== 'group') return new Response(JSON.stringify({ error: 'Only group chats can be updated' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const { title, avatar_data } = (await request.json()) as { title?: string; avatar_data?: string };
+	const now = Date.now();
+
+	let avatarUrl: string | null = null;
+	if (avatar_data !== undefined) {
+		if (avatar_data === 'none') {
+			avatarUrl = null;
+		} else if (avatar_data.startsWith('data:image/')) {
+			avatarUrl = avatar_data;
+		} else {
+			return new Response(JSON.stringify({ error: 'Invalid avatar_data format' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+		}
+	}
+
+	if (title === undefined && avatar_data === undefined) {
+		return new Response(JSON.stringify({ error: 'title or avatar_data required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const setClauses: string[] = ['updated_at = ?'];
+	const bindValues: any[] = [now];
+
+	if (title !== undefined) {
+		setClauses.push('title = ?');
+		bindValues.push(title);
+	}
+
+	bindValues.push(chatId);
+
+	await env.DB.prepare(
+		`UPDATE chats SET ${setClauses.join(', ')} WHERE id = ?`
+	).bind(...bindValues).run();
+
+	let newTitle = title ?? chat.title ?? '';
+	let newAvatarUrl: string | null = null;
+	if (avatar_data !== undefined) {
+		newAvatarUrl = avatarUrl;
+	}
+
+	return new Response(JSON.stringify({
+		id: chatId,
+		type: 'group',
+		title: newTitle,
+		avatar_url: newAvatarUrl,
+	}), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
 async function handleMarkHeard(request: Request, env: Env, chatId: string): Promise<Response> {

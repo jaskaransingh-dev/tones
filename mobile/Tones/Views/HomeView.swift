@@ -106,8 +106,9 @@ struct HomeView: View {
             ZStack {
                 Image("TonesLogo")
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .scaledToFill()
                     .frame(width: 120, height: 120)
+                    .clipShape(Circle())
             }
             VStack(spacing: 8) {
                 Text("say hi")
@@ -332,30 +333,36 @@ struct HomeView: View {
 
     private func groupAvatar(chat: LocalChat) -> some View {
         let members = chat.members ?? []
+        let hasGroupAvatar = chat.avatarURL != nil && !(chat.avatarURL?.isEmpty ?? true) && chat.avatarURL != "none"
         let avatars: [(url: String?, initial: String)] = {
+            if hasGroupAvatar { return [] }
             let others = members.filter { $0.id != AuthService.shared.currentUser?.id }
             if others.isEmpty { return [(url: nil, initial: "?")] }
             return others.prefix(3).map { (url: $0.avatarURL, initial: String(($0.username ?? "?").prefix(1)).uppercased()) }
         }()
+        let unheard = chat.unreadCount
 
         return ZStack {
-            Group {
-                if avatars.count >= 3 {
-                    AvatarView(urlString: avatars[2].url, initial: avatars[2].initial, size: 28)
-                        .offset(x: 14, y: 14)
-                        .zIndex(0)
+            if hasGroupAvatar {
+                AvatarView(urlString: chat.avatarURL, initial: String(chat.displayName.prefix(1)).uppercased(), size: 50)
+            } else {
+                Group {
+                    if avatars.count >= 3 {
+                        AvatarView(urlString: avatars[2].url, initial: avatars[2].initial, size: 28)
+                            .offset(x: 14, y: 14)
+                            .zIndex(0)
+                    }
+                    if avatars.count >= 2 {
+                        AvatarView(urlString: avatars[1].url, initial: avatars[1].initial, size: 28)
+                            .offset(x: -14, y: 14)
+                            .zIndex(1)
+                    }
+                    AvatarView(urlString: avatars.first?.url, initial: avatars.first?.initial ?? "?", size: 34)
+                        .zIndex(2)
                 }
-                if avatars.count >= 2 {
-                    AvatarView(urlString: avatars[1].url, initial: avatars[1].initial, size: 28)
-                        .offset(x: -14, y: 14)
-                        .zIndex(1)
-                }
-                AvatarView(urlString: avatars.first?.url, initial: avatars.first?.initial ?? "?", size: 34)
-                    .zIndex(2)
+                .frame(width: 50, height: 50)
             }
-            .frame(width: 50, height: 50)
 
-            let unheard = chat.unreadCount
             if unheard > 0 {
                 Circle()
                     .fill(Color.callGreen)
@@ -366,7 +373,6 @@ struct HomeView: View {
                             .foregroundStyle(.white)
                     )
                     .offset(x: 18, y: -18)
-                    .zIndex(3)
             }
         }
     }

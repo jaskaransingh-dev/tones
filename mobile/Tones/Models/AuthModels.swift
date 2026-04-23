@@ -115,6 +115,7 @@ struct RemoteChat: Codable {
     var id: String
     var type: String
     var title: String?
+    var avatar_url: String?
     var updated_at: Int?
     var peer_id: String?
     var peer_username: String?
@@ -132,6 +133,13 @@ struct CreateGroupResponse: Codable {
     var id: String
     var type: String
     var title: String?
+}
+
+struct UpdateGroupResponse: Codable {
+    var id: String
+    var type: String
+    var title: String?
+    var avatar_url: String?
 }
 
 struct RemoteMessage: Codable {

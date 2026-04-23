@@ -17,6 +17,7 @@ struct ChatView: View {
     @State private var micPulse = false
     @State private var showEmptyGreeting = false
     @State private var viewState: ChatViewState = .idle
+    @State private var showGroupSettings = false
     @Environment(\.dismiss) private var dismiss
 
     private var myId: String { AuthService.shared.currentUser?.id ?? "" }
@@ -107,6 +108,26 @@ struct ChatView: View {
                     .foregroundStyle(Color.warmDark.opacity(0.6))
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                if chat.isGroup {
+                    Button(action: { showGroupSettings = true }) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Color.warmCoral)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showGroupSettings) {
+            GroupSettingsView(viewModel: viewModel, chat: Binding(
+                get: { chat },
+                set: { newChat in
+                    if let idx = viewModel.chats.firstIndex(where: { $0.id == newChat.id }) {
+                        viewModel.chats[idx] = newChat
+                        LocalStorage.shared.addChat(newChat)
+                    }
+                }
+            ))
         }
         .onAppear {
             messages = LocalStorage.shared.loadMessages(chat.id)

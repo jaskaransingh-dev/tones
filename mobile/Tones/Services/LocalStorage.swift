@@ -171,6 +171,7 @@ struct LocalChat: Codable, Identifiable {
     var updatedAt: Int
     var unreadCount: Int
     var peerAvatarURL: String?
+    var avatarURL: String?
     var members: [LocalChatMember]?
 
     var isGroup: Bool { type == "group" }
@@ -182,7 +183,7 @@ struct LocalChat: Codable, Identifiable {
         return name
     }
 
-    init(id: String = UUID().uuidString, name: String, type: String = "dm", createdAt: Int = Int(Date().timeIntervalSince1970), updatedAt: Int = Int(Date().timeIntervalSince1970), unreadCount: Int = 0, peerAvatarURL: String? = nil, members: [LocalChatMember]? = nil) {
+    init(id: String = UUID().uuidString, name: String, type: String = "dm", createdAt: Int = Int(Date().timeIntervalSince1970), updatedAt: Int = Int(Date().timeIntervalSince1970), unreadCount: Int = 0, peerAvatarURL: String? = nil, avatarURL: String? = nil, members: [LocalChatMember]? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -190,6 +191,7 @@ struct LocalChat: Codable, Identifiable {
         self.updatedAt = updatedAt
         self.unreadCount = unreadCount
         self.peerAvatarURL = peerAvatarURL
+        self.avatarURL = avatarURL
         self.members = members
     }
 }

@@ -139,6 +139,15 @@ final class HomeViewModel: ObservableObject {
         return chat
     }
 
+    func updateGroupChat(chatId: String, title: String?, avatarData: String?) async throws {
+        let result = try await api.updateGroupChat(chatId: chatId, title: title, avatarData: avatarData)
+        if let idx = chats.firstIndex(where: { $0.id == chatId }) {
+            chats[idx].name = result.title ?? chats[idx].name
+            chats[idx].avatarURL = result.avatar_url
+            storage.addChat(chats[idx])
+        }
+    }
+
     func syncChats() async {
         do {
             let remote = try await api.listChats()
@@ -149,6 +158,9 @@ final class HomeViewModel: ObservableObject {
                     merged[idx].unreadCount = r.unread_count ?? merged[idx].unreadCount
                     if let avatarURL = r.peer_avatar_url {
                         merged[idx].peerAvatarURL = avatarURL
+                    }
+                    if r.type == "group" {
+                        merged[idx].avatarURL = r.avatar_url
                     }
                     if let members = r.members {
                         merged[idx].members = members.map { LocalChatMember(id: $0.id, username: $0.username, avatarURL: $0.avatar_url) }
