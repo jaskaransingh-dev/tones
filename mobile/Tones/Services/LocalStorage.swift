@@ -152,6 +152,17 @@ class LocalStorage {
 
 // MARK: - Models (Codable for JSON storage)
 
+struct LocalChatMember: Codable, Identifiable, Equatable {
+    var id: String
+    var username: String?
+    var avatarURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, username
+        case avatarURL = "avatar_url"
+    }
+}
+
 struct LocalChat: Codable, Identifiable {
     let id: String
     var name: String
@@ -160,10 +171,18 @@ struct LocalChat: Codable, Identifiable {
     var updatedAt: Int
     var unreadCount: Int
     var peerAvatarURL: String?
+    var members: [LocalChatMember]?
 
     var isGroup: Bool { type == "group" }
 
-    init(id: String = UUID().uuidString, name: String, type: String = "dm", createdAt: Int = Int(Date().timeIntervalSince1970), updatedAt: Int = Int(Date().timeIntervalSince1970), unreadCount: Int = 0, peerAvatarURL: String? = nil) {
+    var displayName: String {
+        if isGroup && !name.isEmpty {
+            return name
+        }
+        return name
+    }
+
+    init(id: String = UUID().uuidString, name: String, type: String = "dm", createdAt: Int = Int(Date().timeIntervalSince1970), updatedAt: Int = Int(Date().timeIntervalSince1970), unreadCount: Int = 0, peerAvatarURL: String? = nil, members: [LocalChatMember]? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -171,6 +190,7 @@ struct LocalChat: Codable, Identifiable {
         self.updatedAt = updatedAt
         self.unreadCount = unreadCount
         self.peerAvatarURL = peerAvatarURL
+        self.members = members
     }
 }
 
@@ -180,6 +200,7 @@ struct LocalMessage: Codable, Identifiable {
     let senderId: String
     let audioPath: String
     let senderName: String
+    let senderAvatarURL: String?
     let duration: Double
     let createdAt: Int
     var heard: Bool
@@ -188,11 +209,12 @@ struct LocalMessage: Codable, Identifiable {
         LocalStorage.shared.getAudioURL(audioPath)
     }
 
-    init(id: String = UUID().uuidString, chatId: String, senderId: String, senderName: String = "You", audioPath: String, duration: Double, createdAt: Int = Int(Date().timeIntervalSince1970), heard: Bool = false) {
+    init(id: String = UUID().uuidString, chatId: String, senderId: String, senderName: String = "You", senderAvatarURL: String? = nil, audioPath: String, duration: Double, createdAt: Int = Int(Date().timeIntervalSince1970), heard: Bool = false) {
         self.id = id
         self.chatId = chatId
         self.senderId = senderId
         self.senderName = senderName
+        self.senderAvatarURL = senderAvatarURL
         self.audioPath = audioPath
         self.duration = duration
         self.createdAt = createdAt

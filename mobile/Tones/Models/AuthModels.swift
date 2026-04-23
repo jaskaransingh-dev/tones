@@ -105,6 +105,12 @@ struct ToneMessage: Codable, Identifiable {
     }
 }
 
+struct RemoteChatMember: Codable {
+    var id: String
+    var username: String?
+    var avatar_url: String?
+}
+
 struct RemoteChat: Codable {
     var id: String
     var type: String
@@ -114,11 +120,18 @@ struct RemoteChat: Codable {
     var peer_username: String?
     var peer_avatar_url: String?
     var unread_count: Int?
+    var members: [RemoteChatMember]?
 }
 
 struct CreateDMResponse: Codable {
     var id: String
     var type: String
+}
+
+struct CreateGroupResponse: Codable {
+    var id: String
+    var type: String
+    var title: String?
 }
 
 struct RemoteMessage: Codable {
@@ -129,6 +142,7 @@ struct RemoteMessage: Codable {
     var duration_ms: Int
     var created_at: Int
     var sender_username: String?
+    var sender_avatar_url: String?
     var heard: Bool?
 }
 

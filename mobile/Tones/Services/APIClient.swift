@@ -50,6 +50,20 @@ final class APIClient {
         return result.id
     }
 
+    func createGroupChat(title: String?, memberIds: [String]) async throws -> String {
+        let url = baseURL.appendingPathComponent("chats/group")
+        var req = authedReq(url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(CreateGroupRequest(title: title ?? "", member_ids: memberIds))
+
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+
+        let result = try JSONDecoder().decode(CreateGroupResponse.self, from: data)
+        return result.id
+    }
+
     func listMessages(chatId: String, since: Int) async throws -> [RemoteMessage] {
         var components = URLComponents(url: baseURL.appendingPathComponent("chats/\(chatId)/messages"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "since", value: String(since))]

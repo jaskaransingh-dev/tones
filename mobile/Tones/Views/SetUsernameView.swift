@@ -16,14 +16,10 @@ struct SetUsernameView: View {
                 Spacer()
 
                 VStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.warmPeach.opacity(0.6))
-                            .frame(width: 100, height: 100)
-                        Image(systemName: "person.badge.plus")
-                            .font(.system(size: 36, weight: .ultraLight))
-                            .foregroundStyle(Color.warmCoral)
-                    }
+                    Image("TonesLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 80, height: 80)
                     Text("pick a username")
                         .font(.system(size: 28, weight: .thin))
                         .foregroundStyle(Color.warmDark)
@@ -97,6 +93,7 @@ struct SetUsernameView: View {
                         .background(username.count >= 3 ? Color.warmCoral : Color.warmCoral.opacity(0.4))
                         .clipShape(RoundedRectangle(cornerRadius: 18))
                         .shadow(color: Color.warmCoral.opacity(username.count >= 3 ? 0.25 : 0), radius: 12, y: 6)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: username.count >= 3)
                     }
                     .disabled(username.count < 3 || isSubmitting)
 

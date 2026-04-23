@@ -77,6 +77,7 @@ final class HomeViewModel: ObservableObject {
                     chatId: chatId,
                     senderId: r.sender_id,
                     senderName: senderName,
+                    senderAvatarURL: r.sender_avatar_url,
                     audioPath: "audio/\(fileName)",
                     duration: Double(r.duration_ms) / 1000.0,
                     createdAt: r.created_at / 1000,
@@ -119,6 +120,25 @@ final class HomeViewModel: ObservableObject {
         return chat
     }
 
+    func createGroupChat(title: String?, members: [(id: String, username: String?)]) async throws -> LocalChat {
+        let memberIds = members.map { $0.id }
+        let chatId = try await api.createGroupChat(title: title, memberIds: memberIds)
+        var allMembers = members.map { LocalChatMember(id: $0.id, username: $0.username) }
+        let myId = AuthService.shared.currentUser?.id ?? ""
+        if let myUsername = AuthService.shared.currentUser?.username {
+            if let idx = allMembers.firstIndex(where: { $0.id == myId }) {
+                allMembers[idx].username = myUsername
+            } else {
+                allMembers.append(LocalChatMember(id: myId, username: myUsername))
+            }
+        }
+        let groupTitle = title ?? members.compactMap { $0.username }.joined(separator: ", ")
+        let chat = LocalChat(id: chatId, name: groupTitle, type: "group", members: allMembers)
+        storage.addChat(chat)
+        chats.insert(chat, at: 0)
+        return chat
+    }
+
     func syncChats() async {
         do {
             let remote = try await api.listChats()
@@ -130,12 +150,21 @@ final class HomeViewModel: ObservableObject {
                     if let avatarURL = r.peer_avatar_url {
                         merged[idx].peerAvatarURL = avatarURL
                     }
+                    if let members = r.members {
+                        merged[idx].members = members.map { LocalChatMember(id: $0.id, username: $0.username, avatarURL: $0.avatar_url) }
+                    }
+                    if let title = r.title, r.type == "group" {
+                        merged[idx].name = title
+                    }
                 } else {
                     let name: String
-                    if let u = r.peer_username { name = "@\(u)" }
+                    if r.type == "group" {
+                        name = r.title ?? (r.members?.compactMap { $0.username }.joined(separator: ", ") ?? "group")
+                    } else if let u = r.peer_username { name = "@\(u)" }
                     else if let pid = r.peer_id { name = String(pid.prefix(8)) }
                     else { name = r.title ?? "chat" }
-                    let chat = LocalChat(id: r.id, name: name, type: r.type, unreadCount: r.unread_count ?? 0, peerAvatarURL: r.peer_avatar_url)
+                    let localMembers = r.members?.map { LocalChatMember(id: $0.id, username: $0.username, avatarURL: $0.avatar_url) }
+                    let chat = LocalChat(id: r.id, name: name, type: r.type, unreadCount: r.unread_count ?? 0, peerAvatarURL: r.peer_avatar_url, members: localMembers)
                     storage.addChat(chat)
                     merged.insert(chat, at: 0)
                 }
@@ -184,5 +213,15 @@ final class HomeViewModel: ObservableObject {
     func openChat(with friend: TonesUser) async throws -> LocalChat {
         let name = friend.username.map { "@\($0)" } ?? "user"
         return try await createDM(with: friend.id, friendName: name)
+    }
+
+    func createDMIfExists(chatId: String) async throws -> LocalChat? {
+        if let existing = storage.loadChats().first(where: { $0.id == chatId }) {
+            if !chats.contains(where: { $0.id == chatId }) {
+                chats.insert(existing, at: 0)
+            }
+            return existing
+        }
+        return nil
     }
 }

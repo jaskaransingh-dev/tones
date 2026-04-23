@@ -77,6 +77,7 @@ struct SetProfilePictureView: View {
                         .padding(.vertical, 17)
                         .background(rawImageData == nil ? Color.warmCoral.opacity(0.85) : Color.warmCoral.opacity(0.4))
                         .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: rawImageData != nil)
                     }
                     .disabled(rawImageData != nil)
 

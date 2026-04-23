@@ -10,6 +10,8 @@ export interface Env {
 	SESSIONS: KVNamespace;
 	APPLE_CLIENT_ID: string;
 	PUSH_PRIVATE_KEY: string;
+	PUSH_KEY_ID: string;
+	TEAM_ID: string;
 	AVATAR_BUCKET?: R2Bucket;
 }
 
@@ -75,10 +77,13 @@ export default {
 				const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta property="og:title" content="Add me on Tones"><meta property="og:description" content="Tap to add @${addMatch[1]} on Tones and start talking!"><meta property="og:site_name" content="Tones"><meta http-equiv="refresh" content="0;url=tones://add/${addMatch[1]}"><title>Add @${addMatch[1]} on Tones</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#FFF8F0;display:flex;align-items:center;justify-content:center;min-height:100vh;color:#8C7366}.card{text-align:center;padding:40px 24px;border-radius:24px;background:white;box-shadow:0 4px 24px rgba(245,115,104,0.08);max-width:320px;width:90%}.icon{width:80px;height:80px;border-radius:50%;background:#FFDBC9;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:36px;color:#F57368}h1{font-size:28px;font-weight:300;color:#1F1A17;letter-spacing:2px;margin-bottom:8px}p{font-size:14px;color:#8C7366;margin-bottom:24px}a{display:inline-block;padding:16px 32px;background:#F57368;color:white;border-radius:16px;text-decoration:none;font-weight:600;font-size:16px;box-shadow:0 6px 20px rgba(245,115,104,0.3)}</style></head><body><div class="card"><div class="icon">&#9835;</div><h1>tones</h1><p>Add @${addMatch[1]} on Tones</p><a href="https://apps.apple.com/app/tones">get the app</a></div></body></html>`;
 				return new Response(html, { headers: { 'Content-Type': 'text/html', ...cors } });
 			}
-			if (path === '/chats/dm' && method === 'POST') {
-				return await handleCreateDM(request, env);
-			}
-			if (path === '/chats' && method === 'GET') {
+if (path === '/chats/group' && method === 'POST') {
+			return await handleCreateGroup(request, env);
+		}
+		if (path === '/chats/dm' && method === 'POST') {
+			return await handleCreateDM(request, env);
+		}
+		if (path === '/chats' && method === 'GET') {
 				return await handleListChats(request, env);
 			}
 			const chatMsgMatch = path.match(/^\/chats\/([^/]+)\/messages$/);
@@ -465,7 +470,7 @@ async function handlePushToken(request: Request, env: Env): Promise<Response> {
 	return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
-async function sendPushNotification(recipientUserId: string, senderUsername: string | null, chatId: string, env: Env): Promise<void> {
+async function sendPushNotification(recipientUserId: string, senderId: string, senderUsername: string | null, chatId: string, env: Env): Promise<void> {
 	const rows = await env.DB.prepare(
 		'SELECT push_token, platform FROM push_tokens WHERE user_id = ?'
 	).bind(recipientUserId).all<{ push_token: string; platform: string }>();
@@ -480,27 +485,51 @@ async function sendPushNotification(recipientUserId: string, senderUsername: str
 				body: 'sent you a tone 🎵',
 			},
 			sound: 'default',
-			'mutable-content': 1,
 		},
 		chatId: chatId,
-		senderId: recipientUserId,
+		senderId: senderId,
 	});
+
+	const jwt = generateAPNSJWT(env);
+	const authHeader = jwt ? `bearer ${jwt}` : undefined;
 
 	for (const row of rows.results) {
 		try {
 			const pushUrl = 'https://api.push.apple.com/1/device/' + row.push_token;
-			await fetch(pushUrl, {
+			const headers: Record<string, string> = {
+				'content-type': 'application/json',
+				'apns-topic': 'tonesapp.Tones',
+				'apns-push-type': 'alert',
+				'apns-priority': '10',
+			};
+			if (authHeader) {
+				headers['authorization'] = authHeader;
+			}
+			const resp = await fetch(pushUrl, {
 				method: 'POST',
-				headers: {
-					'content-type': 'application/json',
-					'apns-topic': 'tonesapp.Tones',
-					'apns-push-type': 'alert',
-					'apns-priority': '10',
-				},
+				headers,
 				body: payload,
 			});
+			if (resp.status === 410 || resp.status === 400) {
+				await env.DB.prepare('DELETE FROM push_tokens WHERE push_token = ?').bind(row.push_token).run();
+			}
 		} catch {
 		}
+	}
+}
+
+function generateAPNSJWT(env: Env): string | null {
+	if (!env.PUSH_PRIVATE_KEY || env.PUSH_PRIVATE_KEY === '') return null;
+	try {
+		const now = Math.floor(Date.now() / 1000);
+		const header = btoa(JSON.stringify({ alg: 'ES256', kid: env.PUSH_KEY_ID || '' }));
+		const payload = btoa(JSON.stringify({ iss: env.TEAM_ID || '', iat: now }));
+		// Note: For proper ES256 signing, use a library like 'jose' in production
+		// This creates an unsigned JWT placeholder - replace with proper signing
+		// when you have your .p8 key configured
+		return `${header}.${payload}.unsigned`;
+	} catch {
+		return null;
 	}
 }
 
@@ -652,6 +681,36 @@ async function handleCreateDM(request: Request, env: Env): Promise<Response> {
 	return new Response(JSON.stringify({ id: chatId, type: 'dm' }), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
+async function handleCreateGroup(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const { title, member_ids } = (await request.json()) as { title?: string; member_ids: string[] };
+	if (!member_ids || member_ids.length === 0) {
+		return new Response(JSON.stringify({ error: 'member_ids required (at least 1)' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const allMemberIds = [auth.userId, ...member_ids.filter(id => id !== auth.userId)];
+	const uniqueIds = [...new Set(allMemberIds)];
+
+	for (const uid of uniqueIds) {
+		const exists = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(uid).first();
+		if (!exists) {
+			return new Response(JSON.stringify({ error: `User ${uid} not found` }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
+		}
+	}
+
+	const chatId = crypto.randomUUID();
+	const now = Date.now();
+	const groupTitle = title?.trim() || null;
+	await env.DB.prepare('INSERT INTO chats (id, type, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').bind(chatId, 'group', groupTitle, now, now).run();
+	for (const uid of uniqueIds) {
+		await env.DB.prepare('INSERT INTO chat_members (chat_id, user_id) VALUES (?, ?)').bind(chatId, uid).run();
+	}
+
+	return new Response(JSON.stringify({ id: chatId, type: 'group', title: groupTitle }), { status: 201, headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
 async function handleListChats(request: Request, env: Env): Promise<Response> {
 	const auth = getAuthUser(request);
 	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
@@ -663,12 +722,14 @@ async function handleListChats(request: Request, env: Env): Promise<Response> {
 		 (SELECT u.id FROM chat_members cm JOIN users u ON u.id = cm.user_id
 		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_id,
 		 (SELECT u.avatar_url FROM chat_members cm JOIN users u ON u.id = cm.user_id
-		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_avatar_url
+		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_avatar_url,
+		 (SELECT u.avatar_url FROM chat_members cm JOIN users u ON u.id = cm.user_id
+		  WHERE cm.chat_id = c.id AND cm.user_id = ? LIMIT 1) as my_avatar_url
 		 FROM chats c
 		 JOIN chat_members m ON m.chat_id = c.id
 		 WHERE m.user_id = ?
 		 ORDER BY c.updated_at DESC`
-	).bind(auth.userId, auth.userId, auth.userId, auth.userId).all();
+	).bind(auth.userId, auth.userId, auth.userId, auth.userId, auth.userId).all();
 
 	const chatsWithUnread = await Promise.all((chats.results || []).map(async (chat: any) => {
 		const unheard = await env.DB.prepare(
@@ -676,7 +737,16 @@ async function handleListChats(request: Request, env: Env): Promise<Response> {
 			 WHERE m.chat_id = ? AND m.sender_id != ?
 			 AND NOT EXISTS (SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = ?)`
 		).bind(chat.id, auth.userId, auth.userId).first<{ cnt: number }>();
-		return { ...chat, unread_count: unheard?.cnt ?? 0 };
+
+		let members: Array<{ id: string; username: string | null; avatar_url: string | null }> = [];
+		if (chat.type === 'group') {
+			const memberRows = await env.DB.prepare(
+				`SELECT u.id, u.username, u.avatar_url FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ?`
+			).bind(chat.id).all<{ id: string; username: string | null; avatar_url: string | null }>();
+			members = memberRows.results || [];
+		}
+
+		return { ...chat, unread_count: unheard?.cnt ?? 0, members };
 	}));
 
 	return new Response(JSON.stringify(chatsWithUnread), { headers: { ...cors, 'Content-Type': 'application/json' } });
@@ -694,6 +764,7 @@ async function handleListMessages(request: Request, env: Env, chatId: string): P
 	const messages = await env.DB.prepare(
 		`SELECT m.id, m.chat_id, m.sender_id, m.audio_base64, m.duration_ms, m.created_at,
 		 u.username as sender_username,
+		 u.avatar_url as sender_avatar_url,
 		 CASE WHEN mr.message_id IS NOT NULL THEN 1 ELSE 0 END as heard
 		 FROM messages m JOIN users u ON u.id = m.sender_id
 		 LEFT JOIN message_reads mr ON mr.message_id = m.id AND mr.user_id = ?
@@ -732,7 +803,9 @@ async function handleSendMessage(request: Request, env: Env, ctx: ExecutionConte
 		const sender = await env.DB.prepare(
 			'SELECT username FROM users WHERE id = ?'
 		).bind(auth.userId).first<{ username: string | null }>();
-		ctx.waitUntil(sendPushNotification(members.results[0].user_id, sender?.username ?? null, chatId, env));
+		for (const member of members.results) {
+			ctx.waitUntil(sendPushNotification(member.user_id, auth.userId, sender?.username ?? null, chatId, env));
+		}
 	}
 
 	return new Response(JSON.stringify({ id: messageId, created_at: now }), { headers: { ...cors, 'Content-Type': 'application/json' } });

@@ -23,11 +23,6 @@ struct TonesApp: App {
                             SetProfilePictureView()
                         } else {
                             HomeView()
-                                .onAppear {
-                                    if let chatId = notificationRouter.pendingChatId {
-                                        notificationRouter.pendingChatId = nil
-                                    }
-                                }
                         }
                     } else {
                         WelcomeView()
@@ -35,6 +30,11 @@ struct TonesApp: App {
                 }
             }
             .environmentObject(authService)
+            .onChange(of: notificationRouter.pendingChatId) { _, newChatId in
+                if newChatId != nil {
+                    notificationRouter.pendingChatId = nil
+                }
+            }
         }
     }
     
@@ -58,6 +58,13 @@ class NotificationRouter: ObservableObject {
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            if granted {
+                DispatchQueue.main.async {
+                    application.registerForRemoteNotifications()
+                }
+            }
+        }
         return true
     }
     

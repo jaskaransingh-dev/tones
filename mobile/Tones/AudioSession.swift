@@ -8,6 +8,7 @@ final class AudioSession: NSObject, ObservableObject {
     @Published private(set) var currentlyPlayingId: String? = nil
     @Published private(set) var playbackProgress: Double = 0
     @Published private(set) var level: Double = 0
+    @Published private(set) var waveformLevels: [Double] = Array(repeating: 0.0, count: 30)
 
     private var recorder: AVAudioRecorder?
     private var player: AVAudioPlayer?
@@ -15,18 +16,17 @@ final class AudioSession: NSObject, ObservableObject {
     private var playbackTimer: Timer?
     private var currentPlayingURL: URL?
     private var onPlaybackFinished: (() -> Void)?
+    private var smoothingBuffer: [Double] = []
 
     override init() {
         super.init()
     }
 
-    /// Pre-activate the audio session so the first tap-to-play/record has no warmup delay.
     func prewarm() {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            // Non-fatal; the first real call will retry.
         }
     }
 
@@ -47,12 +47,13 @@ final class AudioSession: NSObject, ObservableObject {
         recorder?.isMeteringEnabled = true
         recorder?.record()
         isRecording = true
+        smoothingBuffer = []
         startMetering()
     }
 
     func stopRecording() -> (url: URL?, duration: TimeInterval?) {
         guard let rec = recorder else { return (nil, nil) }
-        let duration = rec.currentTime  // must read before stop() resets it to 0
+        let duration = rec.currentTime
         rec.stop()
         isRecording = false
         stopMetering()
@@ -74,7 +75,6 @@ final class AudioSession: NSObject, ObservableObject {
             player?.play()
             startPlaybackProgress()
         } catch {
-            print("Playback failed: \(error)")
             currentlyPlayingId = nil
             onPlaybackFinished?()
             onPlaybackFinished = nil
@@ -122,26 +122,43 @@ final class AudioSession: NSObject, ObservableObject {
 
     private func startMetering() {
         meterTimer?.invalidate()
-        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
             guard let self, let recorder = self.recorder, recorder.isRecording else { return }
             recorder.updateMeters()
             let avg = Double(recorder.averagePower(forChannel: 0))
-            let norm = max(0.0, (avg + 50.0) / 50.0)
+            let peak = Double(recorder.peakPower(forChannel: 0))
+            let norm = max(0.0, min(1.0, (avg + 55.0) / 55.0))
+            let peakNorm = max(0.0, min(1.0, (peak + 55.0) / 55.0))
             Task { @MainActor in
                 self.level = norm
+                self.updateWaveform(norm: norm, peak: peakNorm)
             }
         }
+    }
+
+    private func updateWaveform(norm: Double, peak: Double) {
+        smoothingBuffer.append(norm)
+        if smoothingBuffer.count > 3 {
+            smoothingBuffer.removeFirst()
+        }
+        let smoothed = smoothingBuffer.reduce(0, +) / Double(smoothingBuffer.count)
+
+        var levels = waveformLevels
+        levels.removeFirst()
+        levels.append(smoothed)
+        waveformLevels = levels
     }
 
     private func stopMetering() {
         meterTimer?.invalidate()
         meterTimer = nil
         level = 0
+        waveformLevels = Array(repeating: 0.0, count: 30)
     }
 
     private func startPlaybackProgress() {
         playbackTimer?.invalidate()
-        playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
             guard let self, let player = self.player else { return }
             if player.duration > 0 {
                 Task { @MainActor in

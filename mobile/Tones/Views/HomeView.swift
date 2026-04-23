@@ -6,8 +6,10 @@ import UniformTypeIdentifiers
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @EnvironmentObject var authService: AuthService
+    @ObservedObject private var notificationRouter = NotificationRouter.shared
     @State private var showingAddFriend = false
     @State private var showingSettings = false
+    @State private var showingCreateGroup = false
     @State private var openingFriendId: String? = nil
     @State private var pendingChat: LocalChat? = nil
 
@@ -48,15 +50,25 @@ struct HomeView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button(action: { showingAddFriend = true }) {
-                    Image(systemName: "person.badge.plus")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Color.warmCoral)
+                HStack(spacing: 12) {
+                    Button(action: { showingCreateGroup = true }) {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Color.warmCoral)
+                    }
+                    Button(action: { showingAddFriend = true }) {
+                        Image(systemName: "person.badge.plus")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Color.warmCoral)
+                    }
                 }
             }
         }
         .sheet(isPresented: $showingAddFriend) {
             AddFriendView(viewModel: viewModel)
+        }
+        .sheet(isPresented: $showingCreateGroup) {
+            CreateGroupChatView(viewModel: viewModel)
         }
         .sheet(isPresented: $showingSettings) {
             SettingsSheet()
@@ -64,6 +76,7 @@ struct HomeView: View {
         .onAppear {
             viewModel.loadChats()
             viewModel.loadFriends()
+            authService.registerForPushNotifications()
             Task {
                 await viewModel.syncChats()
                 viewModel.refreshUnreadCounts()
@@ -73,23 +86,28 @@ struct HomeView: View {
         .onDisappear {
             viewModel.stopPolling()
         }
+        .onChange(of: notificationRouter.pendingChatId) { _, chatId in
+            guard let chatId else { return }
+            if let chat = viewModel.chats.first(where: { $0.id == chatId }) {
+                pendingChat = chat
+            } else {
+                Task {
+                    if let chat = try? await viewModel.createDMIfExists(chatId: chatId) {
+                        pendingChat = chat
+                    }
+                }
+            }
+        }
     }
 
     private var emptyView: some View {
         VStack(spacing: 28) {
             Spacer()
             ZStack {
-                Circle()
-                    .fill(Color.warmPeach.opacity(0.6))
-                    .frame(width: 160, height: 160)
-                    .blur(radius: 2)
-                Circle()
-                    .stroke(Color.warmCoral.opacity(0.18), lineWidth: 1)
-                    .frame(width: 200, height: 200)
                 Image("TonesLogo")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 56, height: 56)
+                    .frame(width: 120, height: 120)
             }
             VStack(spacing: 8) {
                 Text("say hi")
@@ -247,29 +265,40 @@ struct HomeView: View {
 
     private func chatRow(chat: LocalChat) -> some View {
         let unheard = chat.unreadCount
-        let name = chat.name.replacingOccurrences(of: "@", with: "")
+        let name = chat.displayName.replacingOccurrences(of: "@", with: "")
         let initial = String(name.prefix(1)).uppercased()
         return HStack(spacing: 14) {
-            ZStack {
-                AvatarView(urlString: chat.peerAvatarURL, initial: initial, size: 50)
-                if unheard > 0 {
-                    Circle()
-                        .fill(Color.callGreen)
-                        .frame(width: 14, height: 14)
-                        .overlay(
-                            Text("\(unheard)")
-                                .font(.system(size: 8, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
-                        )
-                        .offset(x: 18, y: -18)
+            if chat.isGroup {
+                groupAvatar(chat: chat)
+            } else {
+                ZStack {
+                    AvatarView(urlString: chat.peerAvatarURL, initial: initial, size: 50)
+                    if unheard > 0 {
+                        Circle()
+                            .fill(Color.callGreen)
+                            .frame(width: 14, height: 14)
+                            .overlay(
+                                Text("\(unheard)")
+                                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                            )
+                            .offset(x: 18, y: -18)
+                    }
                 }
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(chat.name.lowercased())
-                    .font(.system(size: 16, weight: unheard > 0 ? .semibold : .medium))
-                    .foregroundStyle(unheard > 0 ? Color.warmDark : Color.warmDark)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if chat.isGroup {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.warmBrown.opacity(0.6))
+                    }
+                    Text(chat.isGroup ? name : name.lowercased())
+                        .font(.system(size: 16, weight: unheard > 0 ? .semibold : .medium))
+                        .foregroundStyle(Color.warmDark)
+                        .lineLimit(1)
+                }
                 Text(unheard > 0
                         ? "\(unheard) new \(unheard == 1 ? "tone" : "tones")"
                         : "\(LocalStorage.shared.loadMessages(chat.id).count) tones")
@@ -299,6 +328,47 @@ struct HomeView: View {
             RoundedRectangle(cornerRadius: 18)
                 .stroke(unheard > 0 ? Color.callGreen.opacity(0.3) : Color.clear, lineWidth: 1)
         )
+    }
+
+    private func groupAvatar(chat: LocalChat) -> some View {
+        let members = chat.members ?? []
+        let avatars: [(url: String?, initial: String)] = {
+            let others = members.filter { $0.id != AuthService.shared.currentUser?.id }
+            if others.isEmpty { return [(url: nil, initial: "?")] }
+            return others.prefix(3).map { (url: $0.avatarURL, initial: String(($0.username ?? "?").prefix(1)).uppercased()) }
+        }()
+
+        return ZStack {
+            Group {
+                if avatars.count >= 3 {
+                    AvatarView(urlString: avatars[2].url, initial: avatars[2].initial, size: 28)
+                        .offset(x: 14, y: 14)
+                        .zIndex(0)
+                }
+                if avatars.count >= 2 {
+                    AvatarView(urlString: avatars[1].url, initial: avatars[1].initial, size: 28)
+                        .offset(x: -14, y: 14)
+                        .zIndex(1)
+                }
+                AvatarView(urlString: avatars.first?.url, initial: avatars.first?.initial ?? "?", size: 34)
+                    .zIndex(2)
+            }
+            .frame(width: 50, height: 50)
+
+            let unheard = chat.unreadCount
+            if unheard > 0 {
+                Circle()
+                    .fill(Color.callGreen)
+                    .frame(width: 14, height: 14)
+                    .overlay(
+                        Text("\(unheard)")
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                    )
+                    .offset(x: 18, y: -18)
+                    .zIndex(3)
+            }
+        }
     }
 
     private func openFriend(_ friend: TonesUser) {
@@ -336,15 +406,10 @@ struct AddFriendView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 28) {
                         VStack(spacing: 14) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.warmPeach.opacity(0.6))
-                                    .frame(width: 100, height: 100)
-                                Image("TonesLogo")
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 50, height: 50)
-                            }
+                            Image("TonesLogo")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 80, height: 80)
                             Text("add a friend")
                                 .font(.system(size: 24, weight: .thin))
                                 .foregroundStyle(Color.warmDark)

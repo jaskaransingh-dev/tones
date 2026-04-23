@@ -16,43 +16,83 @@ struct ChatView: View {
     @State private var revealedTapeCount: Int = 0
     @State private var micPulse = false
     @State private var showEmptyGreeting = false
+    @State private var viewState: ChatViewState = .idle
     @Environment(\.dismiss) private var dismiss
 
     private var myId: String { AuthService.shared.currentUser?.id ?? "" }
     private var friendName: String {
+        if chat.isGroup {
+            return chat.displayName
+        }
         let n = chat.name
         return n.hasPrefix("@") ? String(n.dropFirst()) : n
     }
     private var friendInitial: String { String(friendName.prefix(1)).uppercased() }
     private var friendAvatarURL: String? { chat.peerAvatarURL }
 
+    private func memberFor(senderId: String) -> LocalChatMember? {
+        chat.members?.first(where: { $0.id == senderId })
+    }
+
+    private func senderAvatarURL(for senderId: String) -> String? {
+        if senderId == myId {
+            return AuthService.shared.currentUser?.avatarURL
+        }
+        if let msg = messages.first(where: { $0.senderId == senderId }), let url = msg.senderAvatarURL {
+            return url
+        }
+        return memberFor(senderId: senderId)?.avatarURL ?? (chat.isGroup ? nil : chat.peerAvatarURL)
+    }
+
+    private func senderInitial(for senderId: String) -> String {
+        if senderId == myId {
+            return String((AuthService.shared.currentUser?.username ?? "you").prefix(1)).uppercased()
+        }
+        if let msg = messages.first(where: { $0.senderId == senderId }) {
+            let name = msg.senderName.replacingOccurrences(of: "@", with: "")
+            if !name.isEmpty { return String(name.prefix(1)).uppercased() }
+        }
+        if let member = memberFor(senderId: senderId), let username = member.username {
+            return String(username.prefix(1)).uppercased()
+        }
+        return String(senderId.prefix(1)).uppercased()
+    }
+
+    private func senderDisplayName(for senderId: String) -> String {
+        if senderId == myId {
+            return AuthService.shared.currentUser?.username.map { "@\($0)" } ?? "you"
+        }
+        if let msg = messages.first(where: { $0.senderId == senderId }) {
+            let name = msg.senderName
+            if name != "user" { return name }
+        }
+        if let member = memberFor(senderId: senderId), let username = member.username {
+            return "@\(username)"
+        }
+        return String(senderId.prefix(8))
+    }
+
+    enum ChatViewState: Equatable {
+        case idle, playing, recording, connecting
+    }
+
     var body: some View {
         ZStack {
             WarmBackground()
 
-            if isRecording {
-                recordingCallView
-                    .transition(.opacity)
-                    .zIndex(2)
-            } else if playingIndex != nil {
-                tapePlayerView
-                    .transition(.opacity)
-                    .zIndex(2)
-            } else {
-                idleView
-                    .transition(.opacity)
-            }
-
-            if isConnecting {
-                connectingOverlay
-                    .transition(.opacity)
-                    .zIndex(3)
+            Group {
+                switch viewState {
+                case .recording:
+                    recordingCallView.transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
+                case .playing:
+                    tapePlayerView.transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
+                case .idle, .connecting:
+                    idleView.transition(.asymmetric(insertion: .opacity, removal: .opacity))
+                }
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: isRecording)
-        .animation(.easeInOut(duration: 0.15), value: playingIndex)
-        .animation(.easeInOut(duration: 0.12), value: isConnecting)
-        .navigationTitle(friendName.lowercased())
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewState)
+        .navigationTitle(chat.isGroup ? "\(friendName) (\((chat.members?.count ?? 1)))" : friendName.lowercased())
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbarBackground(Color.warmCream, for: .navigationBar)
@@ -106,6 +146,9 @@ struct ChatView: View {
     private var tapePlayerView: some View {
         let currentMsg = playingIndex.flatMap { $0 < messages.count ? messages[$0] : nil }
         let remaining = (currentMsg?.duration ?? 0) * (1 - audio.playbackProgress)
+        let currentAvatarURL = currentMsg.map { senderAvatarURL(for: $0.senderId) } ?? friendAvatarURL
+        let currentInitial = currentMsg.map { senderInitial(for: $0.senderId) } ?? friendInitial
+        let currentName = currentMsg.map { senderDisplayName(for: $0.senderId) } ?? friendName
 
         return ZStack {
             Color.warmCream.ignoresSafeArea()
@@ -115,19 +158,19 @@ struct ChatView: View {
 
                 ZStack {
                     Circle()
-                        .fill(Color.warmPeach.opacity(0.3))
+                        .fill(Color.warmPeach.opacity(0.25))
                         .frame(width: 180, height: 180)
-                        .blur(radius: 2)
+                        .blur(radius: 3)
 
                     Circle()
-                        .stroke(Color.warmCoral.opacity(0.12), lineWidth: 1)
+                        .strokeBorder(Color.warmCoral.opacity(0.12), lineWidth: 1)
                         .frame(width: 160, height: 160)
 
-                    AvatarView(urlString: friendAvatarURL, initial: friendInitial, size: 88)
+                    AvatarView(urlString: currentAvatarURL, initial: currentInitial, size: 88)
                 }
                 .padding(.bottom, 8)
 
-                Text(friendName.lowercased())
+                Text(chat.isGroup ? currentName : friendName.lowercased())
                     .font(.system(size: 13, weight: .light))
                     .foregroundStyle(Color.warmBrown)
                     .tracking(5)
@@ -156,7 +199,7 @@ struct ChatView: View {
                     }
                     .frame(maxHeight: 320)
                     .onChange(of: revealedTapeCount) { _, newValue in
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                             proxy.scrollTo("tape-\(newValue - 1)", anchor: .bottom)
                         }
                     }
@@ -188,7 +231,16 @@ struct ChatView: View {
         Group {
             if isPlaying {
                 VStack(spacing: 10) {
-                    AudioWaveBars(isActive: true)
+                    if chat.isGroup {
+                        HStack(spacing: 4) {
+                            AvatarView(urlString: senderAvatarURL(for: message.senderId), initial: senderInitial(for: message.senderId), size: 14)
+                            Text(senderDisplayName(for: message.senderId))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color.warmBrown.opacity(0.7))
+                        }
+                    }
+
+                    LiveWaveView(levels: audio.waveformLevels, color: Color.warmCoral)
                         .frame(height: 36)
 
                     Text(String(format: "%.0f", max(0, remaining)))
@@ -203,14 +255,17 @@ struct ChatView: View {
                         .fill(Color.warmPeach.opacity(0.5))
                         .overlay(
                             RoundedRectangle(cornerRadius: 24)
-                                .stroke(Color.warmCoral.opacity(0.3), lineWidth: 1)
+                                .stroke(Color.warmCoral.opacity(0.25), lineWidth: 1)
                         )
                 )
             } else {
                 HStack(spacing: 8) {
+                    if chat.isGroup {
+                        AvatarView(urlString: senderAvatarURL(for: message.senderId), initial: senderInitial(for: message.senderId), size: 14)
+                    }
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(Color.callGreen)
+                        .foregroundStyle(Color.softGreen)
 
                     Text(String(format: "%.0fs", message.duration))
                         .font(.system(size: 13, weight: .light))
@@ -230,24 +285,24 @@ struct ChatView: View {
         VStack(spacing: 0) {
             Circle()
                 .fill(Color.warmCoral.opacity(0.2))
-                .frame(width: 4, height: 4)
+                .frame(width: 3, height: 3)
             Rectangle()
-                .fill(Color.warmCoral.opacity(0.15))
+                .fill(Color.warmCoral.opacity(0.12))
                 .frame(width: 1, height: 8)
             Circle()
                 .fill(Color.warmCoral.opacity(0.3))
-                .frame(width: 5, height: 5)
+                .frame(width: 4, height: 4)
             Rectangle()
-                .fill(Color.warmCoral.opacity(0.15))
+                .fill(Color.warmCoral.opacity(0.12))
                 .frame(width: 1, height: 8)
             Circle()
                 .fill(Color.warmCoral.opacity(0.2))
-                .frame(width: 4, height: 4)
+                .frame(width: 3, height: 3)
         }
         .padding(.vertical, 2)
     }
 
-    // MARK: - Recording (phone call style)
+    // MARK: - Recording
 
     private var recordingCallView: some View {
         ZStack {
@@ -258,32 +313,43 @@ struct ChatView: View {
 
                 ZStack {
                     Circle()
-                        .fill(Color.callGreen.opacity(0.06))
-                        .frame(width: 280, height: 280)
-                        .scaleEffect(1 + recorder.level * 0.3)
+                        .fill(Color.callGreen.opacity(0.05))
+                        .frame(width: 300, height: 300)
+                        .scaleEffect(1 + recorder.level * 0.2)
                         .animation(.easeOut(duration: 0.12), value: recorder.level)
 
                     Circle()
-                        .fill(Color.callGreen.opacity(0.12))
-                        .frame(width: 200, height: 200)
-                        .scaleEffect(1 + recorder.level * 0.2)
-                        .animation(.easeOut(duration: 0.15), value: recorder.level)
+                        .fill(Color.callGreen.opacity(0.1))
+                        .frame(width: 220, height: 220)
+                        .scaleEffect(1 + recorder.level * 0.35)
+                        .animation(.easeOut(duration: 0.1), value: recorder.level)
+
+                    Circle()
+                        .fill(Color.callGreen.opacity(0.15))
+                        .frame(width: 160, height: 160)
+                        .scaleEffect(1 + recorder.level * 0.15)
+                        .animation(.easeOut(duration: 0.08), value: recorder.level)
 
                     Circle()
                         .fill(Color.callGreen)
                         .frame(width: 110, height: 110)
-                        .shadow(color: Color.callGreen.opacity(0.4), radius: 20, y: 8)
+                        .shadow(color: Color.callGreen.opacity(0.45), radius: 20, y: 8)
 
                     Image(systemName: "mic.fill")
                         .font(.system(size: 42, weight: .medium))
                         .foregroundStyle(.white)
                 }
 
+                LiveWaveView(levels: recorder.waveformLevels, color: Color.callGreen)
+                    .frame(height: 40)
+                    .padding(.horizontal, 60)
+                    .padding(.top, 24)
+
                 Text("tap to send")
                     .font(.system(size: 14, weight: .light))
                     .foregroundStyle(Color.warmBrown.opacity(0.7))
                     .tracking(4)
-                    .padding(.top, 28)
+                    .padding(.top, 16)
 
                 Spacer()
 
@@ -304,10 +370,14 @@ struct ChatView: View {
             if messages.isEmpty {
                 Spacer()
                 VStack(spacing: 24) {
-                    AvatarView(urlString: friendAvatarURL, initial: friendInitial, size: 100)
-                        .scaleEffect(showEmptyGreeting ? 1.0 : 0.8)
+                    if chat.isGroup {
+                        groupEmptyAvatar
+                    } else {
+                        AvatarView(urlString: friendAvatarURL, initial: friendInitial, size: 100)
+                            .scaleEffect(showEmptyGreeting ? 1.0 : 0.7)
+                    }
 
-                    Text("say hi to \(friendName.lowercased())")
+                    Text(chat.isGroup ? "say hi to the group" : "say hi to \(friendName.lowercased())")
                         .font(.system(size: 18, weight: .light))
                         .foregroundStyle(Color.warmBrown)
                         .opacity(showEmptyGreeting ? 1 : 0)
@@ -328,7 +398,12 @@ struct ChatView: View {
                                     isPlaying: audio.currentlyPlayingId == msg.id,
                                     progress: audio.currentlyPlayingId == msg.id ? audio.playbackProgress : 0,
                                     isMine: msg.senderId == myId,
+                                    showSender: chat.isGroup,
+                                    senderAvatarURL: senderAvatarURL(for: msg.senderId),
+                                    senderInitial: senderInitial(for: msg.senderId),
+                                    senderName: senderDisplayName(for: msg.senderId),
                                     onTap: {
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                         tapeMessages = [msg]
                                         revealedTapeCount = 1
                                         playFrom(index: index)
@@ -342,7 +417,7 @@ struct ChatView: View {
                         .padding(.bottom, 120)
                     }
                     .onChange(of: messages.count) { _, _ in
-                        if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                        if let last = messages.last { withAnimation(.spring(response: 0.3)) { proxy.scrollTo(last.id, anchor: .bottom) } }
                     }
                     .onAppear {
                         if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -353,10 +428,10 @@ struct ChatView: View {
             Button(action: startManualRecording) {
                 ZStack {
                     Circle()
-                        .fill(Color.callGreen.opacity(0.1))
+                        .fill(Color.callGreen.opacity(0.08))
                         .frame(width: 88, height: 88)
-                        .scaleEffect(micPulse ? 1.15 : 1.0)
-                        .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: micPulse)
+                        .scaleEffect(micPulse ? 1.2 : 1.0)
+                        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: micPulse)
 
                     Circle()
                         .fill(Color.callGreen)
@@ -388,11 +463,15 @@ struct ChatView: View {
                         .opacity(isConnecting ? 0 : 1)
                         .animation(.easeOut(duration: 0.7).repeatForever(autoreverses: false), value: isConnecting)
 
-                    Circle()
-                        .fill(Color.warmPeach)
-                        .frame(width: 100, height: 100)
+                    if chat.isGroup {
+                        groupEmptyAvatar
+                    } else {
+                        Circle()
+                            .fill(Color.warmPeach)
+                            .frame(width: 100, height: 100)
 
-                    AvatarView(urlString: friendAvatarURL, initial: friendInitial, size: 100)
+                        AvatarView(urlString: friendAvatarURL, initial: friendInitial, size: 100)
+                    }
                 }
                 Text("connecting")
                     .font(.system(size: 12, weight: .light))
@@ -415,6 +494,20 @@ struct ChatView: View {
                 .font(.system(size: 24))
                 .foregroundStyle(.white)
         }
+    }
+
+    private var groupEmptyAvatar: some View {
+        let members = (chat.members ?? []).filter { $0.id != myId }.prefix(3).map { m in
+            (url: m.avatarURL, initial: String((m.username ?? "?").prefix(1)).uppercased())
+        }
+        return ZStack {
+            ForEach(0..<members.count, id: \.self) { i in
+                AvatarView(urlString: members[i].url, initial: members[i].initial, size: 60)
+                    .offset(x: CGFloat(i - (members.count - 1) / 2) * 30)
+                    .zIndex(Double(members.count - i))
+            }
+        }
+        .scaleEffect(showEmptyGreeting ? 1.0 : 0.7)
     }
 
     // MARK: - Logic
@@ -447,6 +540,7 @@ struct ChatView: View {
 
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         isConnecting = true
+        viewState = .connecting
         playingIndex = index
         LocalStorage.shared.markMessageHeard(messages[index].id, chatId: chat.id)
         messages[index].heard = true
@@ -466,8 +560,9 @@ struct ChatView: View {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             self.isConnecting = false
+            self.viewState = .playing
         }
     }
 
@@ -502,9 +597,10 @@ struct ChatView: View {
                 startAutoRecording()
                 return
             }
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
                 revealedTapeCount = nextTapeIdx + 1
             }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             playFrom(index: nextIdx)
         } else {
             endPlayback()
@@ -516,6 +612,7 @@ struct ChatView: View {
         playingIndex = nil
         tapeMessages = []
         revealedTapeCount = 0
+        viewState = .idle
     }
 
     private func stopAndDismiss() {
@@ -526,13 +623,15 @@ struct ChatView: View {
     private func startAutoRecording() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         isConnecting = true
+        viewState = .connecting
         isRecording = true
         Task {
             do { try await recorder.startRecording() }
-            catch { isRecording = false }
+            catch { isRecording = false; viewState = .idle }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             self.isConnecting = false
+            self.viewState = .recording
         }
     }
 
@@ -545,7 +644,10 @@ struct ChatView: View {
     private func stopAndSend() {
         let result = recorder.stopRecording()
         isRecording = false
-        guard let url = result.url, let dur = result.duration, dur > 0.5 else { return }
+        guard let url = result.url, let dur = result.duration, dur > 0.5 else {
+            viewState = .idle
+            return
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         let msgId = UUID().uuidString
         saveAndUpload(url: url, duration: dur, messageId: msgId)
@@ -563,12 +665,14 @@ struct ChatView: View {
             chatId: chat.id,
             senderId: myId,
             senderName: AuthService.shared.currentUser?.username.map { "@\($0)" } ?? "you",
+            senderAvatarURL: AuthService.shared.currentUser?.avatarURL,
             audioPath: "audio/\(fileName)",
             duration: duration,
             heard: true
         )
         LocalStorage.shared.addMessage(msg)
         messages.append(msg)
+        viewState = .idle
 
         Task {
             do {
@@ -610,6 +714,7 @@ struct ChatView: View {
                     chatId: chat.id,
                     senderId: r.sender_id,
                     senderName: senderName,
+                    senderAvatarURL: r.sender_avatar_url,
                     audioPath: "audio/\(fileName)",
                     duration: Double(r.duration_ms) / 1000.0,
                     createdAt: r.created_at / 1000,
@@ -636,61 +741,83 @@ struct ToneBubble: View {
     let isPlaying: Bool
     let progress: Double
     let isMine: Bool
+    var showSender: Bool = false
+    var senderAvatarURL: String? = nil
+    var senderInitial: String = "?"
+    var senderName: String = ""
     let onTap: () -> Void
+
+    @State private var appeared = false
 
     var body: some View {
         HStack {
             if isMine { Spacer(minLength: 64) }
 
             Button(action: onTap) {
-                HStack(spacing: 10) {
-                    if !isMine {
-                        iconCircle
-                    }
-
-                    VStack(alignment: isMine ? .trailing : .leading, spacing: 5) {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color.warmPeach.opacity(0.5))
-                                    .frame(height: 3)
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(isMine ? Color.warmCoral : Color.callGreen)
-                                    .frame(width: isPlaying ? geo.size.width * CGFloat(progress) : (isMine ? geo.size.width * 0.6 : geo.size.width * 0.4), height: 3)
-                                    .animation(.linear(duration: 0.05), value: progress)
-                            }
-                        }
-                        .frame(height: 3)
-
-                        HStack(spacing: 5) {
-                            if !message.heard && !isMine {
-                                Circle()
-                                    .fill(Color.callGreen)
-                                    .frame(width: 5, height: 5)
-                            }
-                            Text(String(format: "%.0fs", message.duration))
-                                .font(.system(size: 11, weight: .light))
+                VStack(alignment: isMine ? .trailing : .leading, spacing: 4) {
+                    if showSender && !isMine {
+                        HStack(spacing: 6) {
+                            AvatarView(urlString: senderAvatarURL, initial: senderInitial, size: 18)
+                            Text(senderName)
+                                .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(Color.warmBrown.opacity(0.7))
                         }
+                        .padding(.horizontal, 4)
                     }
-                    .frame(minWidth: 52)
 
-                    if isMine {
-                        iconCircle
+                    HStack(spacing: 10) {
+                        if !isMine {
+                            iconCircle
+                        }
+
+                        VStack(alignment: isMine ? .trailing : .leading, spacing: 5) {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(Color.warmPeach.opacity(0.5))
+                                        .frame(height: 3)
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(isMine ? Color.warmCoral : Color.callGreen)
+                                        .frame(width: isPlaying ? geo.size.width * CGFloat(progress) : (isMine ? geo.size.width * 0.55 : geo.size.width * 0.35), height: 3)
+                                        .animation(.linear(duration: 0.08), value: progress)
+                                }
+                            }
+                            .frame(height: 3)
+
+                            HStack(spacing: 5) {
+                                if !message.heard && !isMine {
+                                    Circle()
+                                        .fill(Color.callGreen)
+                                        .frame(width: 5, height: 5)
+                                        .transition(.scale.combined(with: .opacity))
+                                }
+                                Text(String(format: "%.0fs", message.duration))
+                                    .font(.system(size: 11, weight: .light))
+                                    .foregroundStyle(Color.warmBrown.opacity(0.7))
+                            }
+                        }
+                        .frame(minWidth: 52)
+
+                        if isMine {
+                            iconCircle
+                        }
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22)
+                            .fill(isMine ? Color.warmPeach.opacity(0.55) : Color.white.opacity(0.9))
+                            .shadow(color: Color.warmDark.opacity(0.04), radius: isPlaying ? 8 : 4, y: isPlaying ? 4 : 2)
+                    )
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 22)
-                        .fill(isMine ? Color.warmPeach.opacity(0.55) : Color.white.opacity(0.9))
-                        .shadow(color: Color.warmDark.opacity(0.04), radius: 6, y: 3)
-                )
             }
             .buttonStyle(PlainButtonStyle())
 
             if !isMine { Spacer(minLength: 64) }
         }
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 8)
+        .onAppear { withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { appeared = true } }
     }
 
     private var iconCircle: some View {
@@ -702,11 +829,36 @@ struct ToneBubble: View {
             Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
                 .font(.system(size: 12))
                 .foregroundStyle(isMine ? Color.warmCoral : Color.callGreen)
+                .contentTransition(.symbolEffect(.replace))
         }
     }
 }
 
-// MARK: - AudioWaveBars
+// MARK: - LiveWaveView
+
+struct LiveWaveView: View {
+    let levels: [Double]
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<levels.count, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 2.5)
+                    .fill(
+                        LinearGradient(
+                            colors: [color, color.opacity(0.5)],
+                            startPoint: .bottom,
+                            endPoint: .top
+                        )
+                    )
+                    .frame(width: 4, height: max(4, CGFloat(levels[i]) * 36))
+                    .animation(.spring(response: 0.15, dampingFraction: 0.6), value: levels[i])
+            }
+        }
+    }
+}
+
+// MARK: - AudioWaveBars (legacy, used by preview)
 
 struct AudioWaveBars: View {
     let isActive: Bool
@@ -714,8 +866,8 @@ struct AudioWaveBars: View {
     private let ticker = Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<9, id: \.self) { i in
+        HStack(spacing: 5) {
+            ForEach(0..<7, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 3)
                     .fill(
                         LinearGradient(
@@ -735,8 +887,8 @@ struct AudioWaveBars: View {
     }
 
     private func barHeight(for i: Int) -> CGFloat {
-        let angle = phase + Double(i) * 0.7
-        return 6 + CGFloat((sin(angle) + 1) / 2) * 32
+        let angle = phase + Double(i) * 0.9
+        return 8 + CGFloat((sin(angle) + 1) / 2) * 30
     }
 }
 

@@ -19,15 +19,12 @@ struct WelcomeView: View {
                         Circle()
                             .stroke(Color.warmCoral.opacity(0.12), lineWidth: 1)
                             .frame(width: 200, height: 200)
-                        Circle()
-                            .fill(Color.warmPeach.opacity(0.85))
-                            .frame(width: 130, height: 130)
-                            .scaleEffect(authService.isLoading ? 1.06 : 1.0)
-                            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: authService.isLoading)
                         Image("TonesLogo")
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(width: 72, height: 72)
+                            .frame(width: 160, height: 160)
+                            .scaleEffect(authService.isLoading ? 1.06 : 1.0)
+                            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: authService.isLoading)
                     }
 
                     Text("tones")
