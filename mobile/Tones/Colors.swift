@@ -9,6 +9,8 @@ extension Color {
     static let warmBrown = Color(red: 0.35, green: 0.28, blue: 0.24)
     static let warmDark = Color(red: 0.12, green: 0.10, blue: 0.09)
     static let callGreen = Color(red: 0.16, green: 0.68, blue: 0.38)
+    static let softGreen = Color(red: 0.28, green: 0.74, blue: 0.50)
+    static let warmLavender = Color(red: 0.82, green: 0.72, blue: 0.88)
 }
 
 struct WarmBackground: View {
@@ -27,6 +29,11 @@ struct WarmBackground: View {
                         .frame(width: geo.size.width * 0.75)
                         .blur(radius: 90)
                         .offset(x: geo.size.width * 0.4, y: geo.size.height * 0.35)
+                    Circle()
+                        .fill(Color.warmLavender.opacity(0.08))
+                        .frame(width: geo.size.width * 0.5)
+                        .blur(radius: 70)
+                        .offset(x: geo.size.width * 0.1, y: -geo.size.height * 0.15)
                 }
             }
             .ignoresSafeArea()

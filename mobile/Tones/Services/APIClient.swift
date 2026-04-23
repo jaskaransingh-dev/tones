@@ -113,6 +113,30 @@ final class APIClient {
         try validate(resp: resp, data: Data())
     }
 
+    func markHeard(chatId: String, messageIds: [String]) async throws {
+        let url = baseURL.appendingPathComponent("chats/\(chatId)/messages/heard")
+        var req = authedReq(url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["message_ids": messageIds])
+
+        let (_, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: Data())
+    }
+
+    func uploadAvatar(avatarData: String) async throws -> String {
+        let url = baseURL.appendingPathComponent("auth/avatar")
+        var req = authedReq(url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["avatar_data": avatarData])
+
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+        let result = try JSONDecoder().decode(AvatarUploadResponse.self, from: data)
+        return result.avatar_url
+    }
+
     private func validate(resp: URLResponse, data: Data) throws {
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"

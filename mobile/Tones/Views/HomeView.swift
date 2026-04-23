@@ -32,12 +32,14 @@ struct HomeView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                if let username = authService.currentUser?.username {
-                    Button(action: { showingSettings = true }) {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(Color.warmCoral)
-                                .frame(width: 7, height: 7)
+                Button(action: { showingSettings = true }) {
+                    HStack(spacing: 6) {
+                        AvatarView(
+                            urlString: authService.currentUser?.avatarURL,
+                            initial: String((authService.currentUser?.username ?? "").prefix(1)).uppercased(),
+                            size: 28
+                        )
+                        if let username = authService.currentUser?.username {
                             Text("@\(username)")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(Color.warmBrown)
@@ -61,9 +63,9 @@ struct HomeView: View {
         }
         .onAppear {
             viewModel.loadChats()
+            viewModel.loadFriends()
             Task {
                 await viewModel.syncChats()
-                await viewModel.loadFriends()
                 viewModel.refreshUnreadCounts()
             }
             viewModel.startPolling()
@@ -181,14 +183,11 @@ struct HomeView: View {
 
     private func friendChip(_ friend: TonesUser) -> some View {
         let name = friend.username ?? "user"
-        let initial = String(name.prefix(1)).uppercased()
         let isOpening = openingFriendId == friend.id
         return Button(action: { openFriend(friend) }) {
             VStack(spacing: 8) {
                 ZStack {
-                    Circle()
-                        .fill(Color.warmPeach)
-                        .frame(width: 58, height: 58)
+                    AvatarView(urlString: friend.avatarURL, initial: String(name.prefix(1)).uppercased(), size: 58)
                     if isOpening {
                         Circle()
                             .stroke(Color.warmCoral.opacity(0.5), lineWidth: 1.5)
@@ -196,9 +195,6 @@ struct HomeView: View {
                             .scaleEffect(1.2)
                             .opacity(0.6)
                     }
-                    Text(initial)
-                        .font(.system(size: 22, weight: .light))
-                        .foregroundStyle(Color.warmCoral)
                 }
                 Text(name.lowercased())
                     .font(.system(size: 11, weight: .medium))
@@ -251,14 +247,11 @@ struct HomeView: View {
 
     private func chatRow(chat: LocalChat) -> some View {
         let unheard = chat.unreadCount
+        let name = chat.name.replacingOccurrences(of: "@", with: "")
+        let initial = String(name.prefix(1)).uppercased()
         return HStack(spacing: 14) {
             ZStack {
-                Circle()
-                    .fill(unheard > 0 ? Color.callGreen.opacity(0.15) : Color.warmPeach)
-                    .frame(width: 50, height: 50)
-                Text(String(chat.name.replacingOccurrences(of: "@", with: "").prefix(1)).uppercased())
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundStyle(unheard > 0 ? Color.callGreen : Color.warmCoral)
+                AvatarView(urlString: chat.peerAvatarURL, initial: initial, size: 50)
                 if unheard > 0 {
                     Circle()
                         .fill(Color.callGreen)
@@ -543,15 +536,11 @@ struct SettingsSheet: View {
 
                     if let username = authService.currentUser?.username {
                         VStack(spacing: 14) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.warmPeach.opacity(0.6))
-                                    .frame(width: 110, height: 110)
-                                Image("TonesLogo")
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 55, height: 55)
-                            }
+                            AvatarView(
+                                urlString: authService.currentUser?.avatarURL,
+                                initial: String(username.prefix(1)).uppercased(),
+                                size: 110
+                            )
                             Text("@\(username)")
                                 .font(.system(size: 22, weight: .medium))
                                 .foregroundStyle(Color.warmDark)

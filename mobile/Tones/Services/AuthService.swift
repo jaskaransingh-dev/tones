@@ -12,8 +12,8 @@ final class AuthService: ObservableObject {
     @Published var isLoading = false
     @Published var authError: String?
 
-    private let baseURL = URL(string: "https://tones-api-prod.jazing14.workers.dev")!
-    private let keychain = KeychainHelper.shared
+    let baseURL = URL(string: "https://tones-api-prod.jazing14.workers.dev")!
+    let keychain = KeychainHelper.shared
 
     init() {
         Task { await restoreSession() }
@@ -117,6 +117,58 @@ final class AuthService: ObservableObject {
            let newUsername = responseDict["username"] as? String {
             currentUser?.username = newUsername
         }
+    }
+
+    func uploadAvatar(_ imageData: Data) async throws {
+        guard let token = keychain.getAccessToken() else {
+            throw TonesAuthError(message: "Not authenticated")
+        }
+
+        guard let compressed = UIImage(data: imageData)?
+            .resized(to: CGSize(width: 400, height: 400))?
+            .jpegData(compressionQuality: 0.7) else {
+            throw TonesAuthError(message: "Failed to process image")
+        }
+
+        let base64 = compressed.base64EncodedString()
+        let dataURL = "data:image/jpeg;base64,\(base64)"
+
+        let url = baseURL.appendingPathComponent("auth/avatar")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["avatar_data": dataURL])
+
+        let (responseData, resp) = try await URLSession.shared.data(for: req)
+
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: responseData) {
+                throw TonesAuthError(message: errorData.error)
+            }
+            throw TonesAuthError(message: "Failed to upload avatar")
+        }
+
+        if let responseDict = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+           let avatarUrl = responseDict["avatar_url"] as? String {
+            currentUser?.avatarURL = avatarUrl
+        }
+    }
+
+    func skipAvatar() async throws {
+        guard let token = keychain.getAccessToken() else {
+            throw TonesAuthError(message: "Not authenticated")
+        }
+
+        let url = baseURL.appendingPathComponent("auth/avatar")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["avatar_data": "none"])
+
+        let (_, _) = try await URLSession.shared.data(for: req)
+        currentUser?.avatarURL = "none"
     }
 
     func registerForPushNotifications() {

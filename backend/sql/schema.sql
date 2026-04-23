@@ -70,6 +70,19 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
 
+-- Message read/heard tracking
+CREATE TABLE IF NOT EXISTS message_reads (
+    message_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    heard_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id),
+    FOREIGN KEY (message_id) REFERENCES messages(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_reads_user ON message_reads(user_id);
+CREATE INDEX IF NOT EXISTS idx_message_reads_message ON message_reads(message_id);
+
 -- Push notification tokens
 CREATE TABLE IF NOT EXISTS push_tokens (
     user_id TEXT NOT NULL,

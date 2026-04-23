@@ -114,13 +114,13 @@ class LocalStorage {
         loadMessages(chatId).last
     }
 
-    func getUnheardCount(chatId: String) -> Int {
-        loadMessages(chatId).filter { !$0.heard }.count
+    func getUnheardCount(chatId: String, myId: String = "") -> Int {
+        loadMessages(chatId).filter { !$0.heard && ($0.senderId != myId || myId.isEmpty) }.count
     }
 
-    func totalUnreadCount() -> Int {
+    func totalUnreadCount(myId: String = "") -> Int {
         let chatIds = loadChats().map { $0.id }
-        return chatIds.reduce(0) { $0 + getUnheardCount(chatId: $1) }
+        return chatIds.reduce(0) { $0 + getUnheardCount(chatId: $1, myId: myId) }
     }
 
     // MARK: - Sync State
@@ -159,16 +159,18 @@ struct LocalChat: Codable, Identifiable {
     var createdAt: Int
     var updatedAt: Int
     var unreadCount: Int
+    var peerAvatarURL: String?
 
     var isGroup: Bool { type == "group" }
 
-    init(id: String = UUID().uuidString, name: String, type: String = "dm", createdAt: Int = Int(Date().timeIntervalSince1970), updatedAt: Int = Int(Date().timeIntervalSince1970), unreadCount: Int = 0) {
+    init(id: String = UUID().uuidString, name: String, type: String = "dm", createdAt: Int = Int(Date().timeIntervalSince1970), updatedAt: Int = Int(Date().timeIntervalSince1970), unreadCount: Int = 0, peerAvatarURL: String? = nil) {
         self.id = id
         self.name = name
         self.type = type
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.unreadCount = unreadCount
+        self.peerAvatarURL = peerAvatarURL
     }
 }
 

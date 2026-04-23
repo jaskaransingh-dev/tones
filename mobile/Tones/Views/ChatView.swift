@@ -12,6 +12,10 @@ struct ChatView: View {
     @State private var playingIndex: Int? = nil
     @State private var isRecording = false
     @State private var isConnecting = false
+    @State private var tapeMessages: [LocalMessage] = []
+    @State private var revealedTapeCount: Int = 0
+    @State private var micPulse = false
+    @State private var showEmptyGreeting = false
     @Environment(\.dismiss) private var dismiss
 
     private var myId: String { AuthService.shared.currentUser?.id ?? "" }
@@ -20,6 +24,7 @@ struct ChatView: View {
         return n.hasPrefix("@") ? String(n.dropFirst()) : n
     }
     private var friendInitial: String { String(friendName.prefix(1)).uppercased() }
+    private var friendAvatarURL: String? { chat.peerAvatarURL }
 
     var body: some View {
         ZStack {
@@ -29,8 +34,8 @@ struct ChatView: View {
                 recordingCallView
                     .transition(.opacity)
                     .zIndex(2)
-            } else if let idx = playingIndex {
-                playingCallView(index: idx)
+            } else if playingIndex != nil {
+                tapePlayerView
                     .transition(.opacity)
                     .zIndex(2)
             } else {
@@ -67,22 +72,40 @@ struct ChatView: View {
             messages = LocalStorage.shared.loadMessages(chat.id)
             audio.prewarm()
             recorder.prewarm()
+
+            let unheard = messages.filter { !$0.heard && $0.senderId != myId }
+            if !unheard.isEmpty {
+                checkForAutoPlay()
+            } else if messages.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                        showEmptyGreeting = true
+                    }
+                }
+                startAutoRecording()
+            }
+
             Task {
-                await syncRemoteMessages()
+                let hadNew = await syncRemoteMessages()
+                if hadNew {
+                    checkForAutoPlay()
+                } else if messages.isEmpty {
+                    startAutoRecording()
+                }
             }
         }
         .onDisappear {
             audio.stopPlayback()
             _ = recorder.stopRecording()
+            endPlayback()
         }
     }
 
-    // MARK: - Playing (phone call style)
+    // MARK: - Tape Player
 
-    private func playingCallView(index: Int) -> some View {
-        let msg = index < messages.count ? messages[index] : nil
-        let isMe = msg?.senderId == myId
-        let remaining = (msg?.duration ?? 0) * (1 - audio.playbackProgress)
+    private var tapePlayerView: some View {
+        let currentMsg = playingIndex.flatMap { $0 < messages.count ? messages[$0] : nil }
+        let remaining = (currentMsg?.duration ?? 0) * (1 - audio.playbackProgress)
 
         return ZStack {
             Color.warmCream.ignoresSafeArea()
@@ -90,66 +113,138 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Avatar with pulse rings
                 ZStack {
                     Circle()
-                        .stroke(Color.warmCoral.opacity(0.15), lineWidth: 1)
-                        .frame(width: 240, height: 240)
+                        .fill(Color.warmPeach.opacity(0.3))
+                        .frame(width: 180, height: 180)
+                        .blur(radius: 2)
 
                     Circle()
-                        .stroke(Color.warmCoral.opacity(0.25), lineWidth: 1.5)
-                        .frame(width: 186, height: 186)
+                        .stroke(Color.warmCoral.opacity(0.12), lineWidth: 1)
+                        .frame(width: 160, height: 160)
 
-                    Circle()
-                        .fill(Color.warmPeach)
-                        .frame(width: 130, height: 130)
-
-                    Text(isMe ? "Y" : friendInitial)
-                        .font(.system(size: 50, weight: .light))
-                        .foregroundStyle(Color.warmCoral)
-                    Image("TonesLogo")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 36, height: 36)
-                        .opacity(0.7)
+                    AvatarView(urlString: friendAvatarURL, initial: friendInitial, size: 88)
                 }
-                .padding(.bottom, 28)
+                .padding(.bottom, 8)
 
-                Text(isMe ? "you" : friendName.lowercased())
-                    .font(.system(size: 14, weight: .light))
+                Text(friendName.lowercased())
+                    .font(.system(size: 13, weight: .light))
                     .foregroundStyle(Color.warmBrown)
                     .tracking(5)
 
-                // Animated wave bars
-                AudioWaveBars(isActive: true)
-                    .frame(height: 44)
-                    .padding(.top, 20)
-                    .padding(.bottom, 14)
+                ScrollViewReader { proxy in
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 0) {
+                            ForEach(0..<revealedTapeCount, id: \.self) { i in
+                                let msg = tapeMessages[i]
+                                let msgIndex = messages.firstIndex(where: { $0.id == msg.id })
+                                let isNowPlaying = msgIndex == playingIndex
 
-                // Countdown
-                Text(String(format: "%.0f", max(0, remaining)))
-                    .font(.system(size: 62, weight: .ultraLight, design: .monospaced))
-                    .foregroundStyle(Color.warmDark)
-                    .contentTransition(.numericText())
+                                if i > 0 {
+                                    tapeConnector
+                                }
 
-                Text("\(index + 1) / \(messages.count)")
-                    .font(.system(size: 11, weight: .light))
-                    .foregroundStyle(Color.warmBrown.opacity(0.7))
-                    .tracking(4)
-                    .padding(.top, 10)
+                                tapeSegment(message: msg, isPlaying: isNowPlaying, remaining: isNowPlaying ? remaining : msg.duration)
+                                    .id("tape-\(i)")
+                                    .transition(.asymmetric(
+                                        insertion: .scale(scale: 0.85).combined(with: .opacity),
+                                        removal: .opacity
+                                    ))
+                            }
+                        }
+                        .padding(.vertical, 20)
+                    }
+                    .frame(maxHeight: 320)
+                    .onChange(of: revealedTapeCount) { _, newValue in
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
+                            proxy.scrollTo("tape-\(newValue - 1)", anchor: .bottom)
+                        }
+                    }
+                }
+                .padding(.top, 20)
+
+                if tapeMessages.count > 1 {
+                    let tapeIdx = playingIndex.flatMap { idx -> Int? in
+                        (idx < messages.count) ? tapeMessages.firstIndex(where: { $0.id == messages[idx].id }) : nil
+                    } ?? 0
+                    Text("\(tapeIdx + 1) / \(tapeMessages.count)")
+                        .font(.system(size: 11, weight: .light))
+                        .foregroundStyle(Color.warmBrown.opacity(0.5))
+                        .tracking(4)
+                        .padding(.top, 8)
+                }
 
                 Spacer()
 
-                // Hang up = stop
-                Button(action: {
-                    audio.stopPlayback()
-                    playingIndex = nil
-                }) {
+                Button(action: stopAndDismiss) {
                     hangUpButton
                 }
                 .padding(.bottom, 56)
             }
         }
+    }
+
+    private func tapeSegment(message: LocalMessage, isPlaying: Bool, remaining: Double) -> some View {
+        Group {
+            if isPlaying {
+                VStack(spacing: 10) {
+                    AudioWaveBars(isActive: true)
+                        .frame(height: 36)
+
+                    Text(String(format: "%.0f", max(0, remaining)))
+                        .font(.system(size: 40, weight: .ultraLight, design: .monospaced))
+                        .foregroundStyle(Color.warmDark)
+                        .contentTransition(.numericText())
+                }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(Color.warmPeach.opacity(0.5))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(Color.warmCoral.opacity(0.3), lineWidth: 1)
+                        )
+                )
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.callGreen)
+
+                    Text(String(format: "%.0fs", message.duration))
+                        .font(.system(size: 13, weight: .light))
+                        .foregroundStyle(Color.warmBrown.opacity(0.6))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(Color.warmPeach.opacity(0.3))
+                )
+            }
+        }
+    }
+
+    private var tapeConnector: some View {
+        VStack(spacing: 0) {
+            Circle()
+                .fill(Color.warmCoral.opacity(0.2))
+                .frame(width: 4, height: 4)
+            Rectangle()
+                .fill(Color.warmCoral.opacity(0.15))
+                .frame(width: 1, height: 8)
+            Circle()
+                .fill(Color.warmCoral.opacity(0.3))
+                .frame(width: 5, height: 5)
+            Rectangle()
+                .fill(Color.warmCoral.opacity(0.15))
+                .frame(width: 1, height: 8)
+            Circle()
+                .fill(Color.warmCoral.opacity(0.2))
+                .frame(width: 4, height: 4)
+        }
+        .padding(.vertical, 2)
     }
 
     // MARK: - Recording (phone call style)
@@ -163,32 +258,32 @@ struct ChatView: View {
 
                 ZStack {
                     Circle()
-                        .fill(Color.callGreen.opacity(0.07))
-                        .frame(width: 250, height: 250)
-                        .scaleEffect(1 + recorder.level * 0.45)
-                        .animation(.easeOut(duration: 0.08), value: recorder.level)
+                        .fill(Color.callGreen.opacity(0.06))
+                        .frame(width: 280, height: 280)
+                        .scaleEffect(1 + recorder.level * 0.3)
+                        .animation(.easeOut(duration: 0.12), value: recorder.level)
 
                     Circle()
-                        .fill(Color.callGreen.opacity(0.13))
-                        .frame(width: 175, height: 175)
-                        .scaleEffect(1 + recorder.level * 0.28)
-                        .animation(.easeOut(duration: 0.1), value: recorder.level)
+                        .fill(Color.callGreen.opacity(0.12))
+                        .frame(width: 200, height: 200)
+                        .scaleEffect(1 + recorder.level * 0.2)
+                        .animation(.easeOut(duration: 0.15), value: recorder.level)
 
                     Circle()
                         .fill(Color.callGreen)
-                        .frame(width: 104, height: 104)
-                        .shadow(color: Color.callGreen.opacity(0.45), radius: 18, y: 6)
+                        .frame(width: 110, height: 110)
+                        .shadow(color: Color.callGreen.opacity(0.4), radius: 20, y: 8)
 
                     Image(systemName: "mic.fill")
-                        .font(.system(size: 38))
+                        .font(.system(size: 42, weight: .medium))
                         .foregroundStyle(.white)
                 }
 
                 Text("tap to send")
-                    .font(.system(size: 13, weight: .light))
-                    .foregroundStyle(Color.warmBrown.opacity(0.8))
-                    .tracking(5)
-                    .padding(.top, 32)
+                    .font(.system(size: 14, weight: .light))
+                    .foregroundStyle(Color.warmBrown.opacity(0.7))
+                    .tracking(4)
+                    .padding(.top, 28)
 
                 Spacer()
 
@@ -208,31 +303,36 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if messages.isEmpty {
                 Spacer()
-                VStack(spacing: 20) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.warmPeach.opacity(0.55))
-                            .frame(width: 120, height: 120)
-                        Text(friendInitial)
-                            .font(.system(size: 48, weight: .light))
-                            .foregroundStyle(Color.warmCoral)
-                    }
+                VStack(spacing: 24) {
+                    AvatarView(urlString: friendAvatarURL, initial: friendInitial, size: 100)
+                        .scaleEffect(showEmptyGreeting ? 1.0 : 0.8)
+
                     Text("say hi to \(friendName.lowercased())")
-                        .font(.system(size: 15, weight: .light))
+                        .font(.system(size: 18, weight: .light))
                         .foregroundStyle(Color.warmBrown)
+                        .opacity(showEmptyGreeting ? 1 : 0)
+
+                    Text("tap to start talking")
+                        .font(.system(size: 13, weight: .light))
+                        .foregroundStyle(Color.warmBrown.opacity(0.5))
+                        .opacity(showEmptyGreeting ? 1 : 0)
                 }
                 Spacer()
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(spacing: 4) {
+                        LazyVStack(spacing: 6) {
                             ForEach(Array(messages.enumerated()), id: \.element.id) { index, msg in
                                 ToneBubble(
                                     message: msg,
                                     isPlaying: audio.currentlyPlayingId == msg.id,
                                     progress: audio.currentlyPlayingId == msg.id ? audio.playbackProgress : 0,
                                     isMine: msg.senderId == myId,
-                                    onTap: { playFrom(index: index, autoRecordAfter: true, chain: false) }
+                                    onTap: {
+                                        tapeMessages = [msg]
+                                        revealedTapeCount = 1
+                                        playFrom(index: index)
+                                    }
                                 )
                                 .id(msg.id)
                             }
@@ -253,42 +353,50 @@ struct ChatView: View {
             Button(action: startManualRecording) {
                 ZStack {
                     Circle()
+                        .fill(Color.callGreen.opacity(0.1))
+                        .frame(width: 88, height: 88)
+                        .scaleEffect(micPulse ? 1.15 : 1.0)
+                        .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: micPulse)
+
+                    Circle()
                         .fill(Color.callGreen)
-                        .frame(width: 72, height: 72)
-                        .shadow(color: Color.callGreen.opacity(0.4), radius: 16, y: 6)
+                        .frame(width: 64, height: 64)
+                        .shadow(color: Color.callGreen.opacity(0.35), radius: 12, y: 4)
+
                     Image(systemName: "mic.fill")
-                        .font(.system(size: 26))
+                        .font(.system(size: 24))
                         .foregroundStyle(.white)
                 }
             }
             .padding(.bottom, 44)
+            .onAppear { micPulse = true }
         }
     }
 
-    // MARK: - Connecting overlay (brief ring expand on call start)
+    // MARK: - Connecting overlay
 
     private var connectingOverlay: some View {
         ZStack {
             Color.warmCream.opacity(0.92).ignoresSafeArea()
 
-            VStack(spacing: 18) {
+            VStack(spacing: 20) {
                 ZStack {
                     Circle()
-                        .stroke(Color.warmCoral.opacity(0.25), lineWidth: 1.5)
+                        .stroke(Color.warmCoral.opacity(0.15), lineWidth: 1.5)
                         .frame(width: 140, height: 140)
                         .scaleEffect(isConnecting ? 1.15 : 0.8)
                         .opacity(isConnecting ? 0 : 1)
                         .animation(.easeOut(duration: 0.7).repeatForever(autoreverses: false), value: isConnecting)
+
                     Circle()
                         .fill(Color.warmPeach)
-                        .frame(width: 96, height: 96)
-                    Image(systemName: "phone.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(Color.warmCoral)
+                        .frame(width: 100, height: 100)
+
+                    AvatarView(urlString: friendAvatarURL, initial: friendInitial, size: 100)
                 }
                 Text("connecting")
                     .font(.system(size: 12, weight: .light))
-                    .foregroundStyle(Color.warmBrown.opacity(0.8))
+                    .foregroundStyle(Color.warmBrown.opacity(0.7))
                     .tracking(6)
                     .textCase(.uppercase)
             }
@@ -300,11 +408,11 @@ struct ChatView: View {
     private var hangUpButton: some View {
         ZStack {
             Circle()
-                .fill(Color.red.opacity(0.88))
-                .frame(width: 72, height: 72)
-                .shadow(color: Color.red.opacity(0.3), radius: 14, y: 4)
+                .fill(Color.red.opacity(0.85))
+                .frame(width: 68, height: 68)
+                .shadow(color: Color.red.opacity(0.25), radius: 14, y: 4)
             Image(systemName: "phone.down.fill")
-                .font(.system(size: 26))
+                .font(.system(size: 24))
                 .foregroundStyle(.white)
         }
     }
@@ -313,30 +421,27 @@ struct ChatView: View {
 
     private func checkForAutoPlay() {
         let unheard = messages.filter { !$0.heard && $0.senderId != myId }
+        guard !unheard.isEmpty else { return }
+        tapeMessages = unheard
+        revealedTapeCount = 1
         guard let first = unheard.first,
               let idx = messages.firstIndex(where: { $0.id == first.id }) else { return }
         Task {
             try? await Task.sleep(nanoseconds: 80_000_000)
             await MainActor.run {
-                playFrom(index: idx, autoRecordAfter: true, chain: true)
+                playFrom(index: idx)
             }
         }
     }
 
-    private func playFrom(index: Int, autoRecordAfter: Bool, chain: Bool) {
+    private func playFrom(index: Int) {
         guard index < messages.count else {
-            playingIndex = nil
-            if autoRecordAfter { startAutoRecording() }
+            endPlayback()
             return
         }
 
         guard let url = messages[index].audioURL else {
-            if chain {
-                playFrom(index: index + 1, autoRecordAfter: autoRecordAfter, chain: chain)
-            } else {
-                playingIndex = nil
-                if autoRecordAfter { startAutoRecording() }
-            }
+            advanceTape()
             return
         }
 
@@ -345,22 +450,77 @@ struct ChatView: View {
         playingIndex = index
         LocalStorage.shared.markMessageHeard(messages[index].id, chatId: chat.id)
         messages[index].heard = true
+        Task {
+            try? await APIClient.shared.markHeard(chatId: chat.id, messageIds: [messages[index].id])
+        }
+
+        if let tapeIdx = tapeMessages.firstIndex(where: { $0.id == messages[index].id }) {
+            if tapeIdx + 1 > revealedTapeCount {
+                revealedTapeCount = tapeIdx + 1
+            }
+        }
 
         audio.play(url: url, messageId: messages[index].id) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                let hasNext = index + 1 < self.messages.count
-                if chain && hasNext {
-                    self.playFrom(index: index + 1, autoRecordAfter: autoRecordAfter, chain: chain)
-                } else {
-                    self.playingIndex = nil
-                    if autoRecordAfter { self.startAutoRecording() }
-                }
+                self.onPlaybackFinished()
             }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             self.isConnecting = false
         }
+    }
+
+    private func onPlaybackFinished() {
+        if tapeMessages.count > 1 {
+            advanceTape()
+        } else {
+            endPlayback()
+            startAutoRecording()
+        }
+    }
+
+    private func advanceTape() {
+        guard let currentIdx = playingIndex,
+              currentIdx < messages.count else {
+            endPlayback()
+            startAutoRecording()
+            return
+        }
+        let currentId = messages[currentIdx].id
+        guard let currentTapeIdx = tapeMessages.firstIndex(where: { $0.id == currentId }) else {
+            endPlayback()
+            startAutoRecording()
+            return
+        }
+
+        let nextTapeIdx = currentTapeIdx + 1
+        if nextTapeIdx < tapeMessages.count {
+            let nextMsg = tapeMessages[nextTapeIdx]
+            guard let nextIdx = messages.firstIndex(where: { $0.id == nextMsg.id }) else {
+                endPlayback()
+                startAutoRecording()
+                return
+            }
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                revealedTapeCount = nextTapeIdx + 1
+            }
+            playFrom(index: nextIdx)
+        } else {
+            endPlayback()
+            startAutoRecording()
+        }
+    }
+
+    private func endPlayback() {
+        playingIndex = nil
+        tapeMessages = []
+        revealedTapeCount = 0
+    }
+
+    private func stopAndDismiss() {
+        audio.stopPlayback()
+        endPlayback()
     }
 
     private func startAutoRecording() {
@@ -378,7 +538,7 @@ struct ChatView: View {
 
     private func startManualRecording() {
         audio.stopPlayback()
-        playingIndex = nil
+        endPlayback()
         startAutoRecording()
     }
 
@@ -427,12 +587,14 @@ struct ChatView: View {
         }
     }
 
-    private func syncRemoteMessages() async {
+    @discardableResult
+    private func syncRemoteMessages() async -> Bool {
         let since = LocalStorage.shared.lastSyncedAt(chatId: chat.id)
         do {
             let remote = try await APIClient.shared.listMessages(chatId: chat.id, since: since)
             let existingIds = Set(messages.map { $0.id })
             var latestTs = since
+            var foundNew = false
             for r in remote {
                 latestTs = max(latestTs, r.created_at)
                 guard !existingIds.contains(r.id) else { continue }
@@ -451,15 +613,18 @@ struct ChatView: View {
                     audioPath: "audio/\(fileName)",
                     duration: Double(r.duration_ms) / 1000.0,
                     createdAt: r.created_at / 1000,
-                    heard: r.sender_id == myId
+                    heard: r.heard == true || r.sender_id == myId
                 )
                 LocalStorage.shared.addMessage(msg)
                 messages.append(msg)
+                if !msg.heard && msg.senderId != myId { foundNew = true }
             }
             messages.sort { $0.createdAt < $1.createdAt }
             LocalStorage.shared.setLastSyncedAt(chatId: chat.id, ts: latestTs)
+            return foundNew
         } catch {
             print("Sync failed: \(error)")
+            return false
         }
     }
 }
@@ -486,16 +651,16 @@ struct ToneBubble: View {
                     VStack(alignment: isMine ? .trailing : .leading, spacing: 5) {
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(Color.warmPeach.opacity(0.6))
-                                    .frame(height: 2.5)
-                                RoundedRectangle(cornerRadius: 1.5)
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(Color.warmPeach.opacity(0.5))
+                                    .frame(height: 3)
+                                RoundedRectangle(cornerRadius: 2)
                                     .fill(isMine ? Color.warmCoral : Color.callGreen)
-                                    .frame(width: isPlaying ? geo.size.width * CGFloat(progress) : 0, height: 2.5)
+                                    .frame(width: isPlaying ? geo.size.width * CGFloat(progress) : (isMine ? geo.size.width * 0.6 : geo.size.width * 0.4), height: 3)
                                     .animation(.linear(duration: 0.05), value: progress)
                             }
                         }
-                        .frame(height: 2.5)
+                        .frame(height: 3)
 
                         HStack(spacing: 5) {
                             if !message.heard && !isMine {
@@ -505,7 +670,7 @@ struct ToneBubble: View {
                             }
                             Text(String(format: "%.0fs", message.duration))
                                 .font(.system(size: 11, weight: .light))
-                                .foregroundStyle(Color.warmBrown.opacity(0.8))
+                                .foregroundStyle(Color.warmBrown.opacity(0.7))
                         }
                     }
                     .frame(minWidth: 52)
@@ -514,11 +679,13 @@ struct ToneBubble: View {
                         iconCircle
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(isMine ? Color.warmPeach.opacity(0.6) : Color.white.opacity(0.85))
-                .clipShape(RoundedRectangle(cornerRadius: 22))
-                .shadow(color: Color.warmDark.opacity(0.05), radius: 4, y: 2)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 22)
+                        .fill(isMine ? Color.warmPeach.opacity(0.55) : Color.white.opacity(0.9))
+                        .shadow(color: Color.warmDark.opacity(0.04), radius: 6, y: 3)
+                )
             }
             .buttonStyle(PlainButtonStyle())
 
@@ -530,9 +697,10 @@ struct ToneBubble: View {
         ZStack {
             Circle()
                 .fill(isMine ? Color.warmPeach : Color.warmCream)
-                .frame(width: 34, height: 34)
+                .frame(width: 36, height: 36)
+                .shadow(color: Color.warmDark.opacity(0.06), radius: 3, y: 1)
             Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .foregroundStyle(isMine ? Color.warmCoral : Color.callGreen)
         }
     }
@@ -546,10 +714,16 @@ struct AudioWaveBars: View {
     private let ticker = Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<7, id: \.self) { i in
+        HStack(spacing: 4) {
+            ForEach(0..<9, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 3)
-                    .fill(Color.warmCoral)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.warmCoral, Color.warmCoral.opacity(0.6)],
+                            startPoint: .bottom,
+                            endPoint: .top
+                        )
+                    )
                     .frame(width: 5, height: barHeight(for: i))
                     .animation(.easeInOut(duration: 0.1), value: phase)
             }
@@ -561,8 +735,8 @@ struct AudioWaveBars: View {
     }
 
     private func barHeight(for i: Int) -> CGFloat {
-        let angle = phase + Double(i) * 0.9
-        return 8 + CGFloat((sin(angle) + 1) / 2) * 30
+        let angle = phase + Double(i) * 0.7
+        return 6 + CGFloat((sin(angle) + 1) / 2) * 32
     }
 }
 

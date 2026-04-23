@@ -17,15 +17,17 @@ struct TonesApp: App {
             NavigationStack {
                 Group {
                     if let user = authService.currentUser {
-                        if user.hasUsername {
+                        if !user.hasUsername {
+                            SetUsernameView()
+                        } else if !user.hasCompletedOnboarding {
+                            SetProfilePictureView()
+                        } else {
                             HomeView()
                                 .onAppear {
                                     if let chatId = notificationRouter.pendingChatId {
                                         notificationRouter.pendingChatId = nil
                                     }
                                 }
-                        } else {
-                            SetUsernameView()
                         }
                     } else {
                         WelcomeView()

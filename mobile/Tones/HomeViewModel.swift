@@ -20,6 +20,16 @@ final class HomeViewModel: ObservableObject {
         refreshUnreadCounts()
     }
 
+    func loadFriends() {
+        Task {
+            do {
+                friends = try await api.listFriends()
+            } catch {
+                print("loadFriends failed: \(error)")
+            }
+        }
+    }
+
     func startPolling() {
         stopPolling()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -51,6 +61,7 @@ final class HomeViewModel: ObservableObject {
             let existingIds = Set(storage.loadMessages(chatId).map { $0.id })
             var latestTs = since
             var hasNew = false
+            let myId = AuthService.shared.currentUser?.id ?? ""
             for r in remote {
                 latestTs = max(latestTs, r.created_at)
                 guard !existingIds.contains(r.id) else { continue }
@@ -60,7 +71,6 @@ final class HomeViewModel: ObservableObject {
                 let destURL = destDir.appendingPathComponent(fileName)
                 try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
                 try? data.write(to: destURL)
-                let myId = AuthService.shared.currentUser?.id ?? ""
                 let senderName = r.sender_username.map { "@\($0)" } ?? "user"
                 let msg = LocalMessage(
                     id: r.id,
@@ -70,14 +80,14 @@ final class HomeViewModel: ObservableObject {
                     audioPath: "audio/\(fileName)",
                     duration: Double(r.duration_ms) / 1000.0,
                     createdAt: r.created_at / 1000,
-                    heard: r.sender_id == myId
+                    heard: r.heard == true || r.sender_id == myId
                 )
                 storage.addMessage(msg)
                 hasNew = true
             }
             storage.setLastSyncedAt(chatId: chatId, ts: latestTs)
             if hasNew {
-                UNUserNotificationCenter.current().setBadgeCount(storage.totalUnreadCount())
+                try? await UNUserNotificationCenter.current().setBadgeCount(storage.totalUnreadCount(myId: myId))
             }
         } catch {
             print("syncNewMessages failed: \(error)")
@@ -87,12 +97,12 @@ final class HomeViewModel: ObservableObject {
     func refreshUnreadCounts() {
         var total = 0
         for i in chats.indices {
-            let count = storage.getUnheardCount(chatId: chats[i].id)
+            let count = storage.getUnheardCount(chatId: chats[i].id, myId: AuthService.shared.currentUser?.id ?? "")
             chats[i].unreadCount = count
             total += count
         }
         totalUnreadCount = total
-        UNUserNotificationCenter.current().setBadgeCount(total)
+        Task { try? await UNUserNotificationCenter.current().setBadgeCount(total) }
     }
 
     func createDM(with friendId: String, friendName: String) async throws -> LocalChat {
@@ -115,14 +125,20 @@ final class HomeViewModel: ObservableObject {
             let local = storage.loadChats()
             var merged = local
             for r in remote {
-                if merged.contains(where: { $0.id == r.id }) { continue }
-                let name: String
-                if let u = r.peer_username { name = "@\(u)" }
-                else if let pid = r.peer_id { name = String(pid.prefix(8)) }
-                else { name = r.title ?? "chat" }
-                let chat = LocalChat(id: r.id, name: name, type: r.type)
-                storage.addChat(chat)
-                merged.insert(chat, at: 0)
+                if let idx = merged.firstIndex(where: { $0.id == r.id }) {
+                    merged[idx].unreadCount = r.unread_count ?? merged[idx].unreadCount
+                    if let avatarURL = r.peer_avatar_url {
+                        merged[idx].peerAvatarURL = avatarURL
+                    }
+                } else {
+                    let name: String
+                    if let u = r.peer_username { name = "@\(u)" }
+                    else if let pid = r.peer_id { name = String(pid.prefix(8)) }
+                    else { name = r.title ?? "chat" }
+                    let chat = LocalChat(id: r.id, name: name, type: r.type, unreadCount: r.unread_count ?? 0, peerAvatarURL: r.peer_avatar_url)
+                    storage.addChat(chat)
+                    merged.insert(chat, at: 0)
+                }
             }
             chats = merged
         } catch {

@@ -10,6 +10,7 @@ export interface Env {
 	SESSIONS: KVNamespace;
 	APPLE_CLIENT_ID: string;
 	PUSH_PRIVATE_KEY: string;
+	AVATAR_BUCKET?: R2Bucket;
 }
 
 const cors = {
@@ -47,6 +48,13 @@ export default {
 			if (path === '/auth/me' && method === 'GET') {
 				return await handleMe(request, env);
 			}
+			if (path === '/auth/avatar' && method === 'POST') {
+				return await handleSetAvatar(request, env);
+			}
+			const avatarMatch = path.match(/^\/avatars\/([^/]+)$/);
+			if (avatarMatch && method === 'GET') {
+				return await handleGetAvatar(request, env, avatarMatch[1]);
+			}
 			if (path === '/auth/username' && method === 'POST') {
 				return await handleSetUsername(request, env);
 			}
@@ -79,6 +87,10 @@ export default {
 			}
 			if (chatMsgMatch && method === 'POST') {
 				return await handleSendMessage(request, env, ctx, chatMsgMatch[1]);
+			}
+			const chatMsgHeardMatch = path.match(/^\/chats\/([^/]+)\/messages\/heard$/);
+			if (chatMsgHeardMatch && method === 'POST') {
+				return await handleMarkHeard(request, env, chatMsgHeardMatch[1]);
 			}
 
 			return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
@@ -344,6 +356,97 @@ async function getSuggestions(env: Env, base: string): Promise<string[]> {
 	return suggestions;
 }
 
+async function handleGetAvatar(request: Request, env: Env, userIdOrUsername: string): Promise<Response> {
+	let user = await env.DB.prepare(
+		'SELECT id, avatar_url FROM users WHERE id = ?'
+	).bind(userIdOrUsername).first<{ id: string; avatar_url: string | null }>();
+
+	if (!user) {
+		user = await env.DB.prepare(
+			'SELECT id, avatar_url FROM users WHERE username = ?'
+		).bind(userIdOrUsername).first<{ id: string; avatar_url: string | null }>();
+	}
+
+	if (!user || !user.avatar_url || user.avatar_url === 'none') {
+		return new Response(JSON.stringify({ error: 'No avatar' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const avatarUrl = user.avatar_url;
+
+	if (avatarUrl.startsWith('data:')) {
+		const matches = avatarUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/);
+		if (matches) {
+			const binary = Uint8Array.from(atob(matches[2]), c => c.charCodeAt(0));
+			return new Response(binary, {
+				headers: { ...cors, 'Content-Type': matches[1], 'Cache-Control': 'public, max-age=86400' },
+			});
+		}
+		return new Response(JSON.stringify({ error: 'Invalid avatar' }), { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	if (env.AVATAR_BUCKET) {
+		const obj = await env.AVATAR_BUCKET.get(avatarUrl);
+		if (obj) {
+			return new Response(obj.body, {
+				headers: { ...cors, 'Content-Type': obj.httpMetadata?.contentType ?? 'image/jpeg', 'Cache-Control': 'public, max-age=86400' },
+			});
+		}
+	}
+
+	return new Response(JSON.stringify({ error: 'Avatar not found' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleSetAvatar(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) {
+		return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const body = (await request.json()) as { avatar_data?: string };
+	const avatarData = body.avatar_data;
+	if (!avatarData) {
+		return new Response(JSON.stringify({ error: 'avatar_data required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	if (avatarData === 'none') {
+		await env.DB.prepare(
+			'UPDATE users SET avatar_url = ?, updated_at = ? WHERE id = ?'
+		).bind('none', Date.now(), auth.userId).run();
+
+		return new Response(JSON.stringify({ avatar_url: 'none' }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const maxSize = 2 * 1024 * 1024;
+	if (avatarData.length > maxSize * 1.37) {
+		return new Response(JSON.stringify({ error: 'Image too large (max 2MB)' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const matches = avatarData.match(/^data:image\/(png|jpeg|jpg|webp|heic);base64,/);
+	if (!matches) {
+		return new Response(JSON.stringify({ error: 'Invalid image format. Use JPEG, PNG, WebP, or HEIC.' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	let avatarUrl: string;
+
+	if (env.AVATAR_BUCKET) {
+		const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+		const key = `avatars/${auth.userId}.${ext}`;
+		const binary = Uint8Array.from(atob(avatarData.split(',')[1]), c => c.charCodeAt(0));
+		await env.AVATAR_BUCKET.put(key, binary.buffer as ArrayBuffer, {
+			httpMetadata: { contentType: `image/${matches[1] === 'jpg' ? 'jpeg' : matches[1]}` },
+		});
+		avatarUrl = key;
+	} else {
+		avatarUrl = avatarData;
+	}
+
+	await env.DB.prepare(
+		'UPDATE users SET avatar_url = ?, updated_at = ? WHERE id = ?'
+	).bind(avatarUrl, Date.now(), auth.userId).run();
+
+	return new Response(JSON.stringify({ avatar_url: avatarUrl }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
 async function handlePushToken(request: Request, env: Env): Promise<Response> {
 	const auth = getAuthUser(request);
 	if (!auth) {
@@ -445,16 +548,16 @@ async function handleUserSearch(request: Request, env: Env): Promise<Response> {
 	}
 
 	const exactUser = await env.DB.prepare(
-		'SELECT id, username FROM users WHERE LOWER(username) = LOWER(?) AND id != ?'
-	).bind(q, auth.userId).first<{ id: string; username: string }>();
+		'SELECT id, username, avatar_url FROM users WHERE LOWER(username) = LOWER(?) AND id != ?'
+	).bind(q, auth.userId).first<{ id: string; username: string; avatar_url: string | null }>();
 
 	if (exactUser) {
 		return new Response(JSON.stringify([exactUser]), { headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
 	const users = await env.DB.prepare(
-		'SELECT id, username FROM users WHERE username LIKE ? AND id != ? LIMIT 20'
-	).bind(q.toLowerCase() + '%', auth.userId).all<{ id: string; username: string }>();
+		'SELECT id, username, avatar_url FROM users WHERE username LIKE ? AND id != ? LIMIT 20'
+	).bind(q.toLowerCase() + '%', auth.userId).all<{ id: string; username: string; avatar_url: string | null }>();
 
 	return new Response(JSON.stringify(users.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
@@ -558,14 +661,25 @@ async function handleListChats(request: Request, env: Env): Promise<Response> {
 		 (SELECT u.username FROM chat_members cm JOIN users u ON u.id = cm.user_id
 		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_username,
 		 (SELECT u.id FROM chat_members cm JOIN users u ON u.id = cm.user_id
-		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_id
+		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_id,
+		 (SELECT u.avatar_url FROM chat_members cm JOIN users u ON u.id = cm.user_id
+		  WHERE cm.chat_id = c.id AND cm.user_id != ? LIMIT 1) as peer_avatar_url
 		 FROM chats c
 		 JOIN chat_members m ON m.chat_id = c.id
 		 WHERE m.user_id = ?
 		 ORDER BY c.updated_at DESC`
-	).bind(auth.userId, auth.userId, auth.userId).all();
+	).bind(auth.userId, auth.userId, auth.userId, auth.userId).all();
 
-	return new Response(JSON.stringify(chats.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	const chatsWithUnread = await Promise.all((chats.results || []).map(async (chat: any) => {
+		const unheard = await env.DB.prepare(
+			`SELECT COUNT(*) as cnt FROM messages m
+			 WHERE m.chat_id = ? AND m.sender_id != ?
+			 AND NOT EXISTS (SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.user_id = ?)`
+		).bind(chat.id, auth.userId, auth.userId).first<{ cnt: number }>();
+		return { ...chat, unread_count: unheard?.cnt ?? 0 };
+	}));
+
+	return new Response(JSON.stringify(chatsWithUnread), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
 async function handleListMessages(request: Request, env: Env, chatId: string): Promise<Response> {
@@ -579,13 +693,16 @@ async function handleListMessages(request: Request, env: Env, chatId: string): P
 
 	const messages = await env.DB.prepare(
 		`SELECT m.id, m.chat_id, m.sender_id, m.audio_base64, m.duration_ms, m.created_at,
-		 u.username as sender_username
+		 u.username as sender_username,
+		 CASE WHEN mr.message_id IS NOT NULL THEN 1 ELSE 0 END as heard
 		 FROM messages m JOIN users u ON u.id = m.sender_id
+		 LEFT JOIN message_reads mr ON mr.message_id = m.id AND mr.user_id = ?
 		 WHERE m.chat_id = ? AND m.created_at > ?
 		 ORDER BY m.created_at ASC`
-	).bind(chatId, since).all();
+	).bind(auth.userId, chatId, since).all();
 
-	return new Response(JSON.stringify(messages.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	const results = (messages.results || []).map((m: any) => ({ ...m, heard: !!m.heard }));
+	return new Response(JSON.stringify(results), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
 async function handleSendMessage(request: Request, env: Env, ctx: ExecutionContext, chatId: string): Promise<Response> {
@@ -619,4 +736,27 @@ async function handleSendMessage(request: Request, env: Env, ctx: ExecutionConte
 	}
 
 	return new Response(JSON.stringify({ id: messageId, created_at: now }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleMarkHeard(request: Request, env: Env, chatId: string): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const member = await env.DB.prepare('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').bind(chatId, auth.userId).first();
+	if (!member) return new Response(JSON.stringify({ error: 'Not a member' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const body = (await request.json()) as { message_ids?: string[] };
+	const messageIds = body.message_ids || [];
+	if (messageIds.length === 0) {
+		return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	const now = Date.now();
+	for (const msgId of messageIds) {
+		await env.DB.prepare(
+			'INSERT OR IGNORE INTO message_reads (message_id, user_id, heard_at) VALUES (?, ?, ?)'
+		).bind(msgId, auth.userId, now).run();
+	}
+
+	return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }

@@ -21,6 +21,15 @@ struct TonesUser: Codable, Identifiable {
         username != nil && !username!.isEmpty && username != ""
     }
 
+    var hasAvatar: Bool {
+        guard let url = avatarURL, !url.isEmpty else { return false }
+        return url != "none"
+    }
+
+    var hasCompletedOnboarding: Bool {
+        hasUsername && (avatarURL != nil && !avatarURL!.isEmpty)
+    }
+
     var uuid: UUID? {
         UUID(uuidString: id)
     }
@@ -62,6 +71,10 @@ struct TonesAuthErrorResponse: Codable {
     var suggestions: [String]?
 }
 
+struct AvatarUploadResponse: Codable {
+    var avatar_url: String
+}
+
 struct ChatListItem: Codable, Identifiable {
     var id: String
     var type: String
@@ -99,6 +112,8 @@ struct RemoteChat: Codable {
     var updated_at: Int?
     var peer_id: String?
     var peer_username: String?
+    var peer_avatar_url: String?
+    var unread_count: Int?
 }
 
 struct CreateDMResponse: Codable {
@@ -114,6 +129,7 @@ struct RemoteMessage: Codable {
     var duration_ms: Int
     var created_at: Int
     var sender_username: String?
+    var heard: Bool?
 }
 
 struct SendMessageResult: Codable {
