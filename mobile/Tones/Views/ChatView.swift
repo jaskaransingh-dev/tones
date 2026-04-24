@@ -508,11 +508,11 @@ struct ChatView: View {
     private var hangUpButton: some View {
         ZStack {
             Circle()
-                .fill(Color.red.opacity(0.85))
+                .fill(Color.warmCoral)
                 .frame(width: 68, height: 68)
-                .shadow(color: Color.red.opacity(0.25), radius: 14, y: 4)
-            Image(systemName: "phone.down.fill")
-                .font(.system(size: 24))
+                .shadow(color: Color.warmCoral.opacity(0.30), radius: 16, y: 6)
+            Image(systemName: "xmark")
+                .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(.white)
         }
     }
@@ -555,6 +555,10 @@ struct ChatView: View {
         }
 
         guard let url = messages[index].audioURL else {
+            // Audio file missing locally — mark heard, then try the next message.
+            LocalStorage.shared.markMessageHeard(messages[index].id, chatId: chat.id)
+            messages[index].heard = true
+            playingIndex = index
             advanceTape()
             return
         }

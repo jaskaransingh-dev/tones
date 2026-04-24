@@ -32,10 +32,10 @@ struct WelcomeView: View {
                         .foregroundStyle(Color.warmDark)
                         .tracking(8)
 
-                    Text("talk with your voice")
-                        .font(.system(size: 14, weight: .light))
-                        .foregroundStyle(Color.warmBrown)
-                        .tracking(3)
+                    Text("voice messages, nothing else")
+                        .font(.system(size: 13, weight: .light))
+                        .foregroundStyle(Color.warmBrown.opacity(0.85))
+                        .tracking(2)
                 }
 
                 Spacer()

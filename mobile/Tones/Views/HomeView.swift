@@ -35,29 +35,28 @@ struct HomeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: { showingSettings = true }) {
-                    HStack(spacing: 6) {
-                        AvatarView(
-                            urlString: authService.currentUser?.avatarURL,
-                            initial: String((authService.currentUser?.username ?? "").prefix(1)).uppercased(),
-                            size: 28
-                        )
-                        if let username = authService.currentUser?.username {
-                            Text("@\(username)")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(Color.warmBrown)
-                        }
-                    }
+                    AvatarView(
+                        urlString: authService.currentUser?.avatarURL,
+                        initial: String((authService.currentUser?.username ?? "").prefix(1)).uppercased(),
+                        size: 30
+                    )
                 }
             }
+            ToolbarItem(placement: .principal) {
+                Text("tones")
+                    .font(.system(size: 16, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color.warmDark)
+                    .tracking(4)
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 12) {
+                HStack(spacing: 18) {
                     Button(action: { showingCreateGroup = true }) {
-                        Image(systemName: "person.2.fill")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(Color.warmCoral)
+                        Image(systemName: "person.2")
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(Color.warmDark.opacity(0.75))
                     }
                     Button(action: { showingAddFriend = true }) {
-                        Image(systemName: "person.badge.plus")
+                        Image(systemName: "plus")
                             .font(.system(size: 17, weight: .medium))
                             .foregroundStyle(Color.warmCoral)
                     }
@@ -101,23 +100,23 @@ struct HomeView: View {
     }
 
     private var emptyView: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 32) {
             Spacer()
-            ZStack {
-                Image("TonesLogo")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 120, height: 120)
-                    .clipShape(Circle())
-            }
-            VStack(spacing: 8) {
-                Text("say hi")
-                    .font(.system(size: 28, weight: .thin))
+            Image("TonesLogo")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 140, height: 140)
+                .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                .shadow(color: Color.warmCoral.opacity(0.18), radius: 28, y: 12)
+            VStack(spacing: 10) {
+                Text("tones")
+                    .font(.system(size: 34, weight: .thin, design: .rounded))
                     .foregroundStyle(Color.warmDark)
-                    .tracking(3)
-                Text("add a friend to start a tone")
+                    .tracking(8)
+                Text("voice messages, nothing else")
                     .font(.system(size: 14, weight: .light))
-                    .foregroundStyle(Color.warmBrown)
+                    .foregroundStyle(Color.warmBrown.opacity(0.8))
+                    .tracking(1)
             }
             Spacer()
             Button(action: { showingAddFriend = true }) {
@@ -129,12 +128,12 @@ struct HomeView: View {
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 17)
+                .padding(.vertical, 18)
                 .background(Color.warmCoral)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .shadow(color: Color.warmCoral.opacity(0.3), radius: 14, y: 6)
+                .clipShape(RoundedRectangle(cornerRadius: TonesRadius.card))
+                .shadow(color: Color.warmCoral.opacity(0.28), radius: 14, y: 6)
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, TonesSpacing.xl)
             .padding(.bottom, 50)
         }
     }
@@ -320,14 +319,10 @@ struct HomeView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(unheard > 0 ? Color.callGreen.opacity(0.06) : Color.white.opacity(0.85))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(unheard > 0 ? Color.callGreen.opacity(0.3) : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: TonesRadius.card)
+                .fill(unheard > 0 ? Color.callGreen.opacity(0.07) : Color.white.opacity(0.7))
         )
     }
 

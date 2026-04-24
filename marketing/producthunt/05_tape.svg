@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1270 760" width="1270" height="760">
+<defs>
+  <radialGradient id="warmwash" cx="20%" cy="0%" r="80%">
+    <stop offset="0%" stop-color="#FFD9C9" stop-opacity="0.45"/>
+    <stop offset="60%" stop-color="#FCF7ED" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="phoneShadow" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#000" stop-opacity="0.06"/>
+    <stop offset="100%" stop-color="#000" stop-opacity="0.18"/>
+  </linearGradient>
+</defs>
+<rect width="1270" height="760" fill="#FCF7ED"/>
+<rect width="1270" height="760" fill="url(#warmwash)"/>
+<text x="635.0" y="110" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="64" font-weight="500" fill="#1A1714" text-anchor="middle" >auto-plays unheard.</text>
+
+    <rect x="463.0" y="108" width="344" height="684" rx="100" ry="100" fill="url(#phoneShadow)" filter="blur(28px)"/>
+    <rect x="475.0" y="120" width="320" height="660" rx="90" ry="90" fill="#1A1714"/>
+    <rect x="485.0" y="130" width="300" height="640" rx="80" ry="80" fill="#FCF7ED"/>
+    <clipPath id="screenClip-475.0-120"><rect x="485.0" y="130" width="300" height="640" rx="80" ry="80"/></clipPath>
+    <g clip-path="url(#screenClip-475.0-120)"><circle cx="635.0" cy="380" r="125" fill="#FFD9C9" opacity="0.4"/>
+<circle cx="635.0" cy="380" r="88" fill="#FFD9C9"/><text x="635.0" y="408.16" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="105" font-weight="500" fill="#1A1714" text-anchor="middle" >M</text>
+<text x="635.0" y="540" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="22" font-weight="300" fill="#5C4D43" text-anchor="middle" letter-spacing="8">@mom</text>
+<rect x="565.0" y="640" width="140" height="220" rx="48" fill="#FFD9C9" opacity="0.55"/>
+<rect x="376.0" y="690.0" width="14" height="80" rx="6" fill="#FB6E5C" opacity="0.6"/><rect x="400.0" y="690.0" width="14" height="80" rx="6" fill="#FB6E5C" opacity="0.6799999999999999"/><rect x="424.0" y="690.104563310894" width="14" height="79.79087337821204" rx="6" fill="#FB6E5C" opacity="0.76"/><rect x="448.0" y="698.7104597136922" width="14" height="62.57908057261545" rx="6" fill="#FB6E5C" opacity="0.84"/><rect x="472.0" y="708.3919675117373" width="14" height="43.21606497652536" rx="6" fill="#FB6E5C" opacity="0.92"/><rect x="496.0" y="715.5452123586174" width="14" height="28.909575282765175" rx="6" fill="#FB6E5C" opacity="0.6"/><rect x="520.0" y="717.5074483127884" width="14" height="24.985103374423318" rx="6" fill="#FB6E5C" opacity="0.6799999999999999"/><rect x="544.0" y="713.548246605885" width="14" height="32.90350678822998" rx="6" fill="#FB6E5C" opacity="0.76"/><rect x="568.0" y="705.1413927020537" width="14" height="49.71721459589252" rx="6" fill="#FB6E5C" opacity="0.84"/><rect x="592.0" y="695.416279847682" width="14" height="69.16744030463613" rx="6" fill="#FB6E5C" opacity="0.92"/><rect x="616.0" y="690.0" width="14" height="80" rx="6" fill="#FB6E5C" opacity="0.6"/><rect x="640.0" y="690.0" width="14" height="80" rx="6" fill="#FB6E5C" opacity="0.6799999999999999"/><rect x="664.0" y="690.0" width="14" height="80" rx="6" fill="#FB6E5C" opacity="0.76"/><rect x="688.0" y="697.4128804272214" width="14" height="65.17423914555721" rx="6" fill="#FB6E5C" opacity="0.84"/><rect x="712.0" y="707.1647768155311" width="14" height="45.67044636893776" rx="6" fill="#FB6E5C" opacity="0.92"/><rect x="736.0" y="714.8452235053704" width="14" height="30.30955298925908" rx="6" fill="#FB6E5C" opacity="0.6"/><rect x="760.0" y="717.5952273138713" width="14" height="24.80954537225736" rx="6" fill="#FB6E5C" opacity="0.6799999999999999"/><rect x="784.0" y="714.3911183349895" width="14" height="31.2177633300209" rx="6" fill="#FB6E5C" opacity="0.76"/><rect x="808.0" y="706.4256039850669" width="14" height="47.14879202986612" rx="6" fill="#FB6E5C" opacity="0.84"/><rect x="832.0" y="696.6637919126722" width="14" height="66.67241617465564" rx="6" fill="#FB6E5C" opacity="0.92"/><rect x="856.0" y="690.0" width="14" height="80" rx="6" fill="#FB6E5C" opacity="0.6"/><rect x="880.0" y="690.0" width="14" height="80" rx="6" fill="#FB6E5C" opacity="0.6799999999999999"/>
+<text x="635.0" y="825" font-family='"SF Mono", monospace' font-size="92" font-weight="200" fill="#1A1714" text-anchor="middle" >12</text>
+<circle cx="635.0" cy="900" r="3" fill="#FB6E5C" opacity="0.4"/>
+<rect x="634.0" y="908" width="2" height="14" fill="#FB6E5C" opacity="0.3"/>
+<circle cx="635.0" cy="930" r="4" fill="#FB6E5C" opacity="0.5"/>
+<rect x="725.0" y="960" width="-180" height="64" rx="32" fill="#FFD9C9" opacity="0.4"/>
+<text x="605.0" y="1002" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="24" font-weight="400" fill="#5C4D43" text-anchor="middle" >✓ 8s</text>
+<text x="635.0" y="1110" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="22" font-weight="300" fill="#5C4D43" text-anchor="middle" letter-spacing="8">2 / 3</text>
+<circle cx="635.0" cy="600" r="60" fill="#FB6E5C"/>
+<text x="635.0" y="612" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="44" font-weight="400" fill="#FFFFFF" text-anchor="middle" >✕</text></g>
+    
+</svg>
