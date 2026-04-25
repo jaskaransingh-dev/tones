@@ -51,36 +51,6 @@ final class AuthService: ObservableObject {
         currentUser = loginResponse.user
     }
 
-    func demoLogin(_ username: String) async throws {
-        isLoading = true
-        authError = nil
-        defer { isLoading = false }
-
-        let cleaned = username.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
-        guard cleaned.count >= 3 else {
-            throw TonesAuthError(message: "Username must be at least 3 characters")
-        }
-
-        let url = baseURL.appendingPathComponent("auth/demo")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["username": cleaned])
-
-        let (data, resp) = try await URLSession.shared.data(for: req)
-
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            if let errorData = try? JSONDecoder().decode(TonesAuthErrorResponse.self, from: data) {
-                throw TonesAuthError(message: errorData.error)
-            }
-            throw TonesAuthError(message: "Login failed")
-        }
-
-        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
-        try saveSession(loginResponse)
-        currentUser = loginResponse.user
-    }
-
     func setUsername(_ username: String) async throws {
         guard let token = keychain.getAccessToken() else {
             throw TonesAuthError(message: "Not authenticated")

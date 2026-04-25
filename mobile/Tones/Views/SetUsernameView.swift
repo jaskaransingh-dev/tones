@@ -18,8 +18,9 @@ struct SetUsernameView: View {
                 VStack(spacing: 14) {
                     Image("TonesLogo")
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
+                        .scaledToFill()
                         .frame(width: 80, height: 80)
+                        .clipShape(Circle())
                     Text("pick a username")
                         .font(.system(size: 28, weight: .thin))
                         .foregroundStyle(Color.warmDark)

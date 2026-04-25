@@ -109,7 +109,7 @@ struct GroupSettingsView: View {
                     } else {
                         Image("TonesLogo")
                             .resizable()
-                            .aspectRatio(contentMode: .fit)
+                            .scaledToFill()
                             .frame(width: 80, height: 80)
                             .clipShape(Circle())
                     }

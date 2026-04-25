@@ -1,11 +1,14 @@
 import SwiftUI
 import AuthenticationServices
+import AVFoundation
+import AudioToolbox
 
 struct WelcomeView: View {
     @EnvironmentObject var authService: AuthService
-    @State private var username = ""
     @State private var errorMessage: String?
-    @FocusState private var isFocused: Bool
+
+    @State private var animationAmount: CGFloat = 1.0
+    @State private var haptic: CGFloat = 1.0
 
     var body: some View {
         ZStack {
@@ -16,15 +19,32 @@ struct WelcomeView: View {
 
                 VStack(spacing: 14) {
                     ZStack {
-                        Circle()
-                            .stroke(Color.warmCoral.opacity(0.12), lineWidth: 1)
-                            .frame(width: 200, height: 200)
                         Image("TonesLogo")
                             .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 160, height: 160)
-                            .scaleEffect(authService.isLoading ? 1.06 : 1.0)
-                            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: authService.isLoading)
+                            .scaledToFill()
+                            .frame(width: 70, height: 70)
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.warmCoral.opacity(0.3), lineWidth: 1)
+                            )
+                            .scaleEffect(animationAmount * haptic)
+                            .onAppear {
+                                withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                                    animationAmount = 1.02
+                                }
+                                Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        haptic = 1.015
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            haptic = 1.0
+                                        }
+                                    }
+                                    AudioServicesPlaySystemSound(1519)
+                                }
+                            }
                     }
 
                     Text("tones")
@@ -40,7 +60,7 @@ struct WelcomeView: View {
 
                 Spacer()
 
-                VStack(spacing: 14) {
+                VStack(spacing: 0) {
                     SignInWithAppleButton(.signIn) { req in
                         req.requestedScopes = [.fullName, .email]
                     } onCompletion: { result in
@@ -49,48 +69,6 @@ struct WelcomeView: View {
                     .signInWithAppleButtonStyle(.white)
                     .frame(height: 52)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                    Text("or")
-                        .font(.system(size: 12, weight: .light))
-                        .foregroundStyle(Color.warmBrown.opacity(0.5))
-
-                    TextField("pick a username", text: $username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(Color.warmDark)
-                        .multilineTextAlignment(.center)
-                        .padding(.vertical, 15)
-                        .padding(.horizontal, 16)
-                        .background(Color.white.opacity(0.85))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .focused($isFocused)
-                        .onChange(of: username) { _, newValue in
-                            username = newValue.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
-                            errorMessage = nil
-                        }
-
-                    Text("3-20 characters, no password needed")
-                        .font(.system(size: 11, weight: .light))
-                        .foregroundStyle(Color.warmBrown.opacity(0.6))
-
-                    Button(action: demoSignIn) {
-                        HStack {
-                            if authService.isLoading {
-                                ProgressView().tint(.white)
-                            } else {
-                                Text("try it")
-                                    .font(.system(size: 17, weight: .semibold))
-                            }
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(username.count >= 3 ? Color.warmCoral : Color.warmCoral.opacity(0.4))
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .shadow(color: Color.warmCoral.opacity(username.count >= 3 ? 0.25 : 0), radius: 12, y: 6)
-                    }
-                    .disabled(username.count < 3 || authService.isLoading)
 
                     if let errorMessage {
                         Text(errorMessage)
@@ -105,6 +83,7 @@ struct WelcomeView: View {
         }
         .onAppear {
             authService.registerForPushNotifications()
+            AudioServicesPlaySystemSound(1519)
         }
     }
 
@@ -120,17 +99,6 @@ struct WelcomeView: View {
         case .failure(let error):
             let nsError = error as NSError
             if nsError.code != ASAuthorizationError.canceled.rawValue {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func demoSignIn() {
-        errorMessage = nil
-        Task {
-            do {
-                try await authService.demoLogin(username)
-            } catch {
                 errorMessage = error.localizedDescription
             }
         }

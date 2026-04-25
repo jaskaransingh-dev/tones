@@ -93,7 +93,7 @@ struct ChatView: View {
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewState)
-        .navigationTitle(chat.isGroup ? "\(friendName) (\((chat.members?.count ?? 1)))" : friendName.lowercased())
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbarBackground(Color.warmCream, for: .navigationBar)
@@ -107,6 +107,11 @@ struct ChatView: View {
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(Color.warmDark.opacity(0.6))
                 }
+            }
+            ToolbarItem(placement: .principal) {
+                Text(chat.isGroup ? "\(friendName) (\((chat.members?.count ?? 1)))" : friendName.lowercased())
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.warmDark)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if chat.isGroup {

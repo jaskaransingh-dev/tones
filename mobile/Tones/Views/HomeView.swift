@@ -43,10 +43,17 @@ struct HomeView: View {
                 }
             }
             ToolbarItem(placement: .principal) {
-                Text("tones")
-                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                    .foregroundStyle(Color.warmDark)
-                    .tracking(4)
+                HStack(spacing: 6) {
+                    Image("TonesLogo")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 24, height: 24)
+                        .clipShape(Circle())
+                    Text("tones")
+                        .font(.system(size: 16, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color.warmDark)
+                        .tracking(4)
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 18) {
@@ -106,7 +113,7 @@ struct HomeView: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: 140, height: 140)
-                .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                .clipShape(Circle())
                 .shadow(color: Color.warmCoral.opacity(0.18), radius: 28, y: 12)
             VStack(spacing: 10) {
                 Text("tones")

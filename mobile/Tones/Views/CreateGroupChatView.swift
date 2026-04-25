@@ -28,8 +28,9 @@ struct CreateGroupChatView: View {
                         VStack(spacing: 14) {
                             Image("TonesLogo")
                                 .resizable()
-                                .aspectRatio(contentMode: .fit)
+                                .scaledToFill()
                                 .frame(width: 64, height: 64)
+                                .clipShape(Circle())
                             Text("new group")
                                 .font(.system(size: 24, weight: .thin))
                                 .foregroundStyle(Color.warmDark)

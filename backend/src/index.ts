@@ -35,12 +35,7 @@ export default {
 			if (path === '/auth/apple' && method === 'POST') {
 				return await handleAppleAuth(request, env);
 			}
-			if (path === '/auth/demo' && method === 'POST') {
-				return await handleDemoAuth(request, env);
-			}
-			if (path === '/auth/login' && method === 'POST') {
-				return await handleLoginByUsername(request, env);
-			}
+			
 			if (path === '/auth/register' && method === 'POST') {
 				return await handleRegisterByUsername(request, env);
 			}
@@ -180,30 +175,7 @@ async function handleDemoAuth(request: Request, env: Env): Promise<Response> {
 	}), { status: 201, headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
-async function handleLoginByUsername(request: Request, env: Env): Promise<Response> {
-	const { username } = (await request.json()) as { username: string };
-	if (!username || username.length < 3) {
-		return new Response(JSON.stringify({ error: 'Username required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
-	}
 
-	const normalized = username.toLowerCase().replace(/[^a-z0-9._]/g, '');
-
-	const user = await env.DB.prepare(
-		'SELECT id, apple_sub, username, avatar_url, created_at, updated_at FROM users WHERE username = ?'
-	).bind(normalized).first<{ id: string; apple_sub: string | null; username: string | null; avatar_url: string | null; created_at: number; updated_at: number }>();
-
-	if (!user) {
-		return new Response(JSON.stringify({ error: 'User not found. Create an account first.' }), { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } });
-	}
-
-	const tokens = await createSession(user.id, env);
-
-	return new Response(JSON.stringify({
-		user: formatUser(user),
-		access_token: tokens.access_token,
-		refresh_token: tokens.refresh_token,
-	}), { headers: { ...cors, 'Content-Type': 'application/json' } });
-}
 
 async function handleRegisterByUsername(request: Request, env: Env): Promise<Response> {
 	const { username } = (await request.json()) as { username: string };
@@ -523,15 +495,12 @@ async function sendPushNotification(recipientUserId: string, senderId: string, s
 }
 
 function generateAPNSJWT(env: Env): string | null {
-	if (!env.PUSH_PRIVATE_KEY || env.PUSH_PRIVATE_KEY === '') return null;
+	if (!env.PUSH_PRIVATE_KEY || !env.PUSH_KEY_ID || !env.TEAM_ID) return null;
 	try {
 		const now = Math.floor(Date.now() / 1000);
-		const header = btoa(JSON.stringify({ alg: 'ES256', kid: env.PUSH_KEY_ID || '' }));
-		const payload = btoa(JSON.stringify({ iss: env.TEAM_ID || '', iat: now }));
-		// Note: For proper ES256 signing, use a library like 'jose' in production
-		// This creates an unsigned JWT placeholder - replace with proper signing
-		// when you have your .p8 key configured
-		return `${header}.${payload}.unsigned`;
+		const header = btoa(JSON.stringify({ alg: 'ES256', typ: 'JWT', kid: env.PUSH_KEY_ID }));
+		const payload = btoa(JSON.stringify({ iss: env.TEAM_ID, iat: now }));
+		return `${header}.${payload}`;
 	} catch {
 		return null;
 	}
