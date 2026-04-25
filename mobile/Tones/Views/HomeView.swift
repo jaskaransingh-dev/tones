@@ -598,6 +598,7 @@ struct SettingsSheet: View {
     @EnvironmentObject var authService: AuthService
     @Environment(\.dismiss) private var dismiss
     @State private var showingShare = false
+    @State private var showingProfilePicture = false
 
     var body: some View {
         NavigationStack {
@@ -609,11 +610,28 @@ struct SettingsSheet: View {
 
                     if let username = authService.currentUser?.username {
                         VStack(spacing: 14) {
-                            AvatarView(
-                                urlString: authService.currentUser?.avatarURL,
-                                initial: String(username.prefix(1)).uppercased(),
-                                size: 110
-                            )
+                            Button(action: { showingProfilePicture = true }) {
+                                ZStack {
+                                    AvatarView(
+                                        urlString: authService.currentUser?.avatarURL,
+                                        initial: String(username.prefix(1)).uppercased(),
+                                        size: 110
+                                    )
+                                    Circle()
+                                        .stroke(Color.warmCoral.opacity(0.3), lineWidth: 2)
+                                        .frame(width: 120, height: 120)
+                                    Circle()
+                                        .fill(Color.warmCoral.opacity(0.15))
+                                        .frame(width: 30, height: 30)
+                                        .overlay(
+                                            Image(systemName: "camera.fill")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(Color.warmCoral)
+                                        )
+                                        .offset(x: 38, y: 38)
+                                }
+                            }
+                            .buttonStyle(PlainButtonStyle())
                             Text("@\(username)")
                                 .font(.system(size: 22, weight: .medium))
                                 .foregroundStyle(Color.warmDark)
@@ -672,6 +690,10 @@ struct SettingsSheet: View {
                     Button("close") { dismiss() }
                         .foregroundStyle(Color.warmBrown)
                 }
+            }
+            .sheet(isPresented: $showingProfilePicture) {
+                SetProfilePictureView()
+                    .environmentObject(authService)
             }
         }
     }

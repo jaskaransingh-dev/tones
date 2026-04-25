@@ -3,6 +3,7 @@ import PhotosUI
 
 struct SetProfilePictureView: View {
     @EnvironmentObject var authService: AuthService
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var avatarImage: UIImage?
     @State private var rawImageData: Data?
@@ -118,6 +119,12 @@ struct SetProfilePictureView: View {
                 .padding(.horizontal, 32)
                 .padding(.bottom, 50)
             }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("close") { dismiss() }
+                        .foregroundStyle(Color.warmBrown)
+                }
+            }
         }
         .onChange(of: selectedPhotoItem) { _, newValue in
             Task {
@@ -158,6 +165,7 @@ struct SetProfilePictureView: View {
                 errorMessage = error.localizedDescription
             }
             isUploading = false
+            dismiss()
         }
     }
 
@@ -170,6 +178,7 @@ struct SetProfilePictureView: View {
                 authService.currentUser?.avatarURL = "none"
             }
             isUploading = false
+            dismiss()
         }
     }
 }

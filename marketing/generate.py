@@ -253,6 +253,43 @@ def screen_friends(x, y, w, h):
     return "\n".join(parts)
 
 
+def screen_group(x, y, w, h):
+    cx = x + w/2
+    parts = []
+    # header
+    parts.append(text(cx, y+130, "new group", size=42, weight=300, tracking=4, color=DARK))
+    # group avatar
+    parts.append(f'<circle cx="{cx}" cy="{y+320}" r="80" fill="{CORAL}"/>')
+    parts.append(text(cx, y+360, "T", size=64, weight=300, color=WHITE))
+    parts.append(text(cx, y+430, "tap to change", size=22, weight=400, color=BROWN))
+    # name input
+    parts.append(f'<rect x="{x+90}" y="{y+500}" width="{w-180}" height="120" rx="36" fill="{WHITE}"/>')
+    parts.append(text(cx, y+575, "group name (optional)", size=34, weight=400, color=BROWN))
+    # members section
+    parts.append(text(x+90, y+700, "add members", size=26, weight=500, tracking=8, color=BROWN, anchor="start"))
+    # member slots
+    for i in range(4):
+        mx = x + 130 + i * 160
+        parts.append(f'<circle cx="{mx}" cy="{y+800}" r="50" fill="{PEACH}"/>')
+        parts.append(text(mx, y+795, "+", size=32, weight=300, color=BROWN))
+    return "\n".join(parts)
+
+
+def screen_welcome(x, y, w, h):
+    cx = x + w/2
+    parts = []
+    # logo circle
+    parts.append(f'<circle cx="{cx}" cy="{y+300}" r="90" fill="{CORAL}"/>')
+    parts.append(f'<circle cx="{cx}" cy="{y+300}" r="70" fill="{WHITE}"/>')
+    # tones text
+    parts.append(text(cx, y+450, "tones", size=60, weight=200, tracking=10, color=DARK))
+    parts.append(text(cx, y+490, "voice messages, nothing else", size=24, weight=300, color=BROWN))
+    # Apple Sign In button
+    parts.append(f'<rect x="{x+180}" y="{y+600}" width="{w-360}" height="100" rx="24" fill="{DARK}"/>')
+    parts.append(text(cx, y+670, "Sign in with Apple", size=28, weight=400, color=WHITE))
+    return "\n".join(parts)
+
+
 def screen_logo(x, y, w, h):
     cx = x + w/2
     parts = []
@@ -266,10 +303,10 @@ def screen_logo(x, y, w, h):
     return "\n".join(parts)
 
 
-# ---------- App Store screenshot generator ----------
+# ---------- App Store screenshot generator (6 for iPhone) ----------
 
 def make_appstore(filename, headline_lines, sub, body_fn,
-                  W=1290, H=2796):
+                   W=1290, H=2796):
     px, py, pw, ph_ = 130, 720, W-260, 1820
     body = phone_frame(px, py, pw, ph_, body_fn(px, py, pw, ph_))
     # headline
@@ -284,14 +321,48 @@ def make_appstore(filename, headline_lines, sub, body_fn,
     out = svg(W, H, page)
     (APPSTORE / filename).write_text(out)
 
-
-# ---------- Generate App Store (5) ----------
+# ---------- Generate App Store (6) ----------
 
 make_appstore(
     "01_hero.svg",
-    ["voice messages.", "nothing else."],
-    "no typing. no scrolling. just talk.",
-    screen_logo,
+    ["tones", "voice messages."],
+    "no typing. just talking.",
+    screen_welcome,
+)
+
+make_appstore(
+    "02_tap_to_talk.svg",
+    ["tap.", "talk.", "send."],
+    "instant voice. no buttons.",
+    screen_record,
+)
+
+make_appstore(
+    "03_auto_play.svg",
+    ["auto-plays."],
+    "open → listen → reply.",
+    screen_tape,
+)
+
+make_appstore(
+    "04_inbox.svg",
+    ["your friends.", "in voice."],
+    "no feeds. just tones.",
+    screen_home,
+)
+
+make_appstore(
+    "05_chat.svg",
+    ["threads", "of voice."],
+    "share a tone back.",
+    screen_chat,
+)
+
+make_appstore(
+    "06_groups.svg",
+    ["group tones."],
+    "up to 32 friends.",
+    screen_group,
 )
 
 make_appstore(
