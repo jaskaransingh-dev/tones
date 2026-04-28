@@ -15,6 +15,10 @@ struct GroupSettingsView: View {
     @State private var showCamera = false
     @State private var showPhotoPicker = false
 
+    private var isCameraAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
+    }
+
     init(viewModel: HomeViewModel, chat: Binding<LocalChat>) {
         self.viewModel = viewModel
         self._chat = chat
@@ -80,8 +84,10 @@ struct GroupSettingsView: View {
     private var avatarSection: some View {
         VStack(spacing: 12) {
             Menu {
-                Button(action: { showCamera = true }) {
-                    Label("Take Photo", systemImage: "camera")
+                if isCameraAvailable {
+                    Button(action: { showCamera = true }) {
+                        Label("Take Photo", systemImage: "camera")
+                    }
                 }
                 Button(action: { showPhotoPicker = true }) {
                     Label("Choose from Library", systemImage: "photo")
@@ -217,6 +223,7 @@ struct GroupSettingsView: View {
     }
 
     private func imageToBase64(_ image: UIImage) -> String {
+        guard image.size.width > 0, image.size.height > 0 else { return "none" }
         let maxSize: CGFloat = 400
         let scale = min(maxSize / image.size.width, maxSize / image.size.height, 1)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -272,15 +279,19 @@ struct GroupAvatarImageView: View {
 
     private func loadImage() {
         if urlString.hasPrefix("data:"), let data = Data(base64Encoded: urlString.split(separator: ",").last.map { String($0) } ?? ""),
-           let img = UIImage(data: Data(base64Encoded: data) ?? Data()) {
+           let img = UIImage(data: data) {
             image = img
             return
         }
         guard let url = URL(string: urlString) else { return }
         Task {
-            if let data = try? Data(contentsOf: url),
-               let img = UIImage(data: data) {
-                await MainActor.run { image = img }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let img = UIImage(data: data) {
+                    await MainActor.run { image = img }
+                }
+            } catch {
+                await MainActor.run { image = nil }
             }
         }
     }

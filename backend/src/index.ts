@@ -35,6 +35,9 @@ export default {
 			if (path === '/auth/apple' && method === 'POST') {
 				return await handleAppleAuth(request, env);
 			}
+			if (path === '/auth/demo' && method === 'POST') {
+				return await handleDemoAuth(request, env);
+			}
 			
 			if (path === '/auth/register' && method === 'POST') {
 				return await handleRegisterByUsername(request, env);

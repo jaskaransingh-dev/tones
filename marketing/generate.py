@@ -284,9 +284,16 @@ def screen_welcome(x, y, w, h):
     # tones text
     parts.append(text(cx, y+450, "tones", size=60, weight=200, tracking=10, color=DARK))
     parts.append(text(cx, y+490, "voice messages, nothing else", size=24, weight=300, color=BROWN))
-    # Apple Sign In button
+    # Apple button placeholder
     parts.append(f'<rect x="{x+180}" y="{y+600}" width="{w-360}" height="100" rx="24" fill="{DARK}"/>')
     parts.append(text(cx, y+670, "Sign in with Apple", size=28, weight=400, color=WHITE))
+    # divider
+    parts.append(text(cx, y+730, "or try Tones", size=20, weight=300, color=BROWN))
+    # username input + button
+    parts.append(f'<rect x="{x+180}" y="{y+780}" width="{w-440}" height="80" rx="20" fill="{WHITE}"/>')
+    parts.append(text(cx, y+820, "username", size=24, weight=300, color=BROWN))
+    parts.append(f'<rect x="{x+w-340}" y="{y+785}" width="140" height="70" rx="16" fill="{CORAL}"/>')
+    parts.append(text(cx, y+820, "go", size=24, weight=600, color=WHITE))
     return "\n".join(parts)
 
 

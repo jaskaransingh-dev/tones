@@ -94,9 +94,10 @@ final class AuthService: ObservableObject {
             throw TonesAuthError(message: "Not authenticated")
         }
 
-        guard let compressed = UIImage(data: imageData)?
-            .resized(to: CGSize(width: 400, height: 400))?
-            .jpegData(compressionQuality: 0.7) else {
+        guard let uiImage = UIImage(data: imageData),
+              uiImage.size.width > 0, uiImage.size.height > 0,
+              let compressed = uiImage.resized(to: CGSize(width: 400, height: 400))?
+              .jpegData(compressionQuality: 0.7) else {
             throw TonesAuthError(message: "Failed to process image")
         }
 

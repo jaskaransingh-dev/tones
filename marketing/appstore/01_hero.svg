@@ -21,6 +21,11 @@
 <text x="645.0" y="1170" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="60" font-weight="200" fill="#1A1714" text-anchor="middle" letter-spacing="10">tones</text>
 <text x="645.0" y="1210" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="24" font-weight="300" fill="#5C4D43" text-anchor="middle" >voice messages, nothing else</text>
 <rect x="310" y="1320" width="670" height="100" rx="24" fill="#1A1714"/>
-<text x="645.0" y="1390" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="28" font-weight="400" fill="#FFFFFF" text-anchor="middle" >Sign in with Apple</text></g>
+<text x="645.0" y="1390" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="28" font-weight="400" fill="#FFFFFF" text-anchor="middle" >Sign in with Apple</text>
+<text x="645.0" y="1450" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="20" font-weight="300" fill="#5C4D43" text-anchor="middle" >or try Tones</text>
+<rect x="310" y="1500" width="590" height="80" rx="20" fill="#FFFFFF"/>
+<text x="645.0" y="1540" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="24" font-weight="300" fill="#5C4D43" text-anchor="middle" >username</text>
+<rect x="820" y="1505" width="140" height="70" rx="16" fill="#FB6E5C"/>
+<text x="645.0" y="1540" font-family='-apple-system, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif' font-size="24" font-weight="600" fill="#FFFFFF" text-anchor="middle" >go</text></g>
     
 </svg>

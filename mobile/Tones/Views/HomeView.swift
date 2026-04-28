@@ -585,13 +585,20 @@ struct ContactPickerView: UIViewControllerRepresentable {
 
 struct ShareSheet: UIViewControllerRepresentable {
     var activityItems: [Any]
+    @Environment(\.presentationMode) var presentationMode
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, _ in }
         return controller
     }
 
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
+        if let popover = uiViewController.popoverPresentationController {
+            popover.sourceView = uiViewController.view
+            popover.sourceRect = CGRect(x: uiViewController.view.bounds.midX, y: uiViewController.view.bounds.midY, width: 0, height: 0)
+        }
+    }
 }
 
 struct SettingsSheet: View {

@@ -12,6 +12,10 @@ struct SetProfilePictureView: View {
     @State private var showCameraPicker = false
     @State private var showPhotosPicker = false
 
+    private var isCameraAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
+    }
+
     var body: some View {
         ZStack {
             WarmBackground()
@@ -51,20 +55,22 @@ struct SetProfilePictureView: View {
                 Spacer()
 
                 VStack(spacing: 16) {
-                    Button(action: { showCameraPicker = true }) {
-                        HStack {
-                            Image(systemName: "camera")
-                                .font(.system(size: 16))
-                            Text("take a photo")
-                                .font(.system(size: 17, weight: .semibold))
+                    if isCameraAvailable {
+                        Button(action: { showCameraPicker = true }) {
+                            HStack {
+                                Image(systemName: "camera")
+                                    .font(.system(size: 16))
+                                Text("take a photo")
+                                    .font(.system(size: 17, weight: .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 17)
+                            .background(rawImageData == nil ? Color.warmCoral : Color.warmCoral.opacity(0.4))
+                            .clipShape(RoundedRectangle(cornerRadius: 18))
                         }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(rawImageData == nil ? Color.warmCoral : Color.warmCoral.opacity(0.4))
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .disabled(rawImageData != nil)
                     }
-                    .disabled(rawImageData != nil)
 
                     PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                         HStack {
@@ -144,6 +150,7 @@ struct SetProfilePictureView: View {
 
     private func processImage(_ data: Data) {
         guard let uiImage = UIImage(data: data),
+              uiImage.size.width > 0, uiImage.size.height > 0,
               let resized = uiImage.resized(to: CGSize(width: 400, height: 400)),
               let compressed = resized.jpegData(compressionQuality: 0.7) else {
             errorMessage = "Failed to process image"
@@ -188,7 +195,11 @@ struct CameraPicker: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
-        picker.sourceType = .camera
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            picker.sourceType = .camera
+        } else {
+            picker.sourceType = .photoLibrary
+        }
         picker.delegate = context.coordinator
         return picker
     }
@@ -221,6 +232,7 @@ struct CameraPicker: UIViewControllerRepresentable {
 
 extension UIImage {
     func resized(to size: CGSize) -> UIImage? {
+        guard size.width > 0, size.height > 0 else { return nil }
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { _ in
             self.draw(in: CGRect(origin: .zero, size: size))

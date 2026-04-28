@@ -45,9 +45,13 @@ struct AvatarView: View {
         } else {
             guard let url = URL(string: urlString) else { return }
             Task {
-                if let data = try? Data(contentsOf: url),
-                   let image = UIImage(data: data) {
-                    await MainActor.run { avatarImage = image }
+                do {
+                    let (data, _) = try await URLSession.shared.data(from: url)
+                    if let image = UIImage(data: data) {
+                        await MainActor.run { avatarImage = image }
+                    }
+                } catch {
+                    await MainActor.run { avatarImage = nil }
                 }
             }
         }

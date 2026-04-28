@@ -1,7 +1,5 @@
 import SwiftUI
 import AuthenticationServices
-import AVFoundation
-import AudioToolbox
 
 struct WelcomeView: View {
     @EnvironmentObject var authService: AuthService
@@ -9,6 +7,7 @@ struct WelcomeView: View {
 
     @State private var animationAmount: CGFloat = 1.0
     @State private var haptic: CGFloat = 1.0
+    @State private var pulseTimer: Timer?
 
     var body: some View {
         ZStack {
@@ -33,7 +32,7 @@ struct WelcomeView: View {
                                 withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
                                     animationAmount = 1.02
                                 }
-                                Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+                                pulseTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
                                     withAnimation(.easeInOut(duration: 0.3)) {
                                         haptic = 1.015
                                     }
@@ -42,7 +41,6 @@ struct WelcomeView: View {
                                             haptic = 1.0
                                         }
                                     }
-                                    AudioServicesPlaySystemSound(1519)
                                 }
                             }
                     }
@@ -60,7 +58,7 @@ struct WelcomeView: View {
 
                 Spacer()
 
-                VStack(spacing: 0) {
+                VStack(spacing: 16) {
                     SignInWithAppleButton(.signIn) { req in
                         req.requestedScopes = [.fullName, .email]
                     } onCompletion: { result in
@@ -83,7 +81,10 @@ struct WelcomeView: View {
         }
         .onAppear {
             authService.registerForPushNotifications()
-            AudioServicesPlaySystemSound(1519)
+        }
+        .onDisappear {
+            pulseTimer?.invalidate()
+            pulseTimer = nil
         }
     }
 
