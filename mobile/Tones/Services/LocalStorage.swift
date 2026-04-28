@@ -5,12 +5,34 @@ class LocalStorage {
 
     private let fileManager = FileManager.default
     let documentsPath: URL
-
     private let chatsFileName = "chats.json"
     private let messagesFileName = "messages.json"
 
+    private let saveRecordingsKey = "saveRecordings"
+
     private init() {
         documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    var shouldSaveRecordings: Bool {
+        get { UserDefaults.standard.object(forKey: saveRecordingsKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: saveRecordingsKey) }
+    }
+
+    func cleanupAudioIfNeeded(chatId: String) {
+        guard !shouldSaveRecordings else { return }
+        let messages = loadMessages(chatId)
+        for msg in messages where msg.heard {
+            deleteAudio(msg.audioPath)
+        }
+    }
+
+    func cleanupAllAudioIfNeeded() {
+        guard !shouldSaveRecordings else { return }
+        let chats = loadChats()
+        for chat in chats {
+            cleanupAudioIfNeeded(chatId: chat.id)
+        }
     }
 
     // MARK: - Audio Storage (Local File)

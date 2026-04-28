@@ -606,6 +606,8 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingShare = false
     @State private var showingProfilePicture = false
+    @State private var showingPrivacyPolicy = false
+    @AppStorage("saveRecordings") private var saveRecordings = true
 
     var body: some View {
         NavigationStack {
@@ -681,6 +683,39 @@ struct SettingsSheet: View {
                     Spacer()
 
                     VStack(spacing: 14) {
+                        VStack(spacing: 12) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("save recordings")
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(Color.warmDark)
+                                    Text(saveRecordings ? "tones are kept until you delete them" : "tones are removed after delivery")
+                                        .font(.system(size: 11, weight: .light))
+                                        .foregroundStyle(Color.warmBrown.opacity(0.7))
+                                }
+                                Spacer()
+                                Toggle("", isOn: $saveRecordings)
+                                    .labelsHidden()
+                                    .tint(Color.warmCoral)
+                                    .onChange(of: saveRecordings) { _, newValue in
+                                        if !newValue {
+                                            LocalStorage.shared.shouldSaveRecordings = false
+                                            LocalStorage.shared.cleanupAllAudioIfNeeded()
+                                        } else {
+                                            LocalStorage.shared.shouldSaveRecordings = true
+                                        }
+                                    }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.7)))
+                        }
+
+                        Button(action: { showingPrivacyPolicy = true }) {
+                            Text("privacy policy")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(Color.warmBrown.opacity(0.6))
+                        }
                         Button(action: signOut) {
                             Text("sign out")
                                 .font(.system(size: 15, weight: .medium))
@@ -702,6 +737,9 @@ struct SettingsSheet: View {
                 SetProfilePictureView()
                     .environmentObject(authService)
             }
+            .sheet(isPresented: $showingPrivacyPolicy) {
+                PrivacyPolicySheet()
+            }
         }
     }
 
@@ -713,6 +751,105 @@ struct SettingsSheet: View {
         dismiss()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             authService.logout()
+        }
+    }
+}
+
+struct PrivacyPolicySheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                WarmBackground()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Tones Voice Privacy Policy")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(Color.warmDark)
+
+                        Text("Effective Date: April 21, 2026")
+                            .font(.system(size: 13, weight: .light))
+                            .foregroundStyle(Color.warmBrown)
+
+                        VStack(alignment: .leading, spacing: 16) {
+                            PolicySection(
+                                title: "Information We Collect",
+                                content: "We do not collect personal data or transmit it to external servers."
+                            )
+
+                            PolicySection(
+                                title: "Audio Recordings",
+                                content: "Voice messages are sent to recipients for delivery. You can choose whether recordings are saved on your device. When \"save recordings\" is off, local copies are removed after delivery."
+                            )
+
+                            PolicySection(
+                                title: "Device Information",
+                                content: "We do not collect analytics or tracking data."
+                            )
+
+                            PolicySection(
+                                title: "Third-Party Services",
+                                content: "We do not use third-party analytics or advertising."
+                            )
+
+                            PolicySection(
+                                title: "Security",
+                                content: "Your data is protected by your device security settings."
+                            )
+
+                            PolicySection(
+                                title: "Children's Privacy",
+                                content: "We do not knowingly collect data from children under 13."
+                            )
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Contact")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(Color.warmDark)
+                                Text("jaskaransinghdoel@gmail.com")
+                                    .font(.system(size: 14, weight: .light))
+                                    .foregroundStyle(Color.warmBrown)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Changes")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(Color.warmDark)
+                                Text("We may update this policy in the future.")
+                                    .font(.system(size: 14, weight: .light))
+                                    .foregroundStyle(Color.warmBrown)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 24)
+                }
+            }
+            .navigationTitle("")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("close") { dismiss() }
+                        .foregroundStyle(Color.warmBrown)
+                }
+            }
+        }
+    }
+}
+
+struct PolicySection: View {
+    let title: String
+    let content: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.warmDark)
+            Text(content)
+                .font(.system(size: 14, weight: .light))
+                .foregroundStyle(Color.warmBrown)
         }
     }
 }

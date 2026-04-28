@@ -574,6 +574,7 @@ struct ChatView: View {
         playingIndex = index
         LocalStorage.shared.markMessageHeard(messages[index].id, chatId: chat.id)
         messages[index].heard = true
+        LocalStorage.shared.cleanupAudioIfNeeded(chatId: chat.id)
         Task {
             try? await APIClient.shared.markHeard(chatId: chat.id, messageIds: [messages[index].id])
         }
