@@ -61,8 +61,23 @@ export default {
 			if (path === '/auth/push-token' && method === 'POST') {
 				return await handlePushToken(request, env);
 			}
+			if (path === '/auth/delete' && method === 'POST') {
+				return await handleDeleteAccount(request, env);
+			}
 			if (path === '/users/search' && method === 'GET') {
 				return await handleUserSearch(request, env);
+			}
+			if (path === '/users/block' && method === 'POST') {
+				return await handleBlockUser(request, env);
+			}
+			if (path === '/users/unblock' && method === 'POST') {
+				return await handleUnblockUser(request, env);
+			}
+			if (path === '/users/blocked' && method === 'GET') {
+				return await handleListBlocked(request, env);
+			}
+			if (path === '/reports' && method === 'POST') {
+				return await handleReport(request, env);
 			}
 			if (path === '/friends' && method === 'GET') {
 				return await handleListFriends(request, env);
@@ -469,7 +484,7 @@ async function sendPushNotification(recipientUserId: string, senderId: string, s
 		senderId: senderId,
 	});
 
-	const jwt = generateAPNSJWT(env);
+	const jwt = await generateAPNSJWT(env);
 	const authHeader = jwt ? `bearer ${jwt}` : undefined;
 
 	for (const row of rows.results) {
@@ -497,16 +512,58 @@ async function sendPushNotification(recipientUserId: string, senderId: string, s
 	}
 }
 
-function generateAPNSJWT(env: Env): string | null {
+let cachedAPNSJWT: { token: string; iat: number } | null = null;
+
+async function generateAPNSJWT(env: Env): Promise<string | null> {
 	if (!env.PUSH_PRIVATE_KEY || !env.PUSH_KEY_ID || !env.TEAM_ID) return null;
+
+	const now = Math.floor(Date.now() / 1000);
+	if (cachedAPNSJWT && now - cachedAPNSJWT.iat < 50 * 60) {
+		return cachedAPNSJWT.token;
+	}
+
 	try {
-		const now = Math.floor(Date.now() / 1000);
-		const header = btoa(JSON.stringify({ alg: 'ES256', typ: 'JWT', kid: env.PUSH_KEY_ID }));
-		const payload = btoa(JSON.stringify({ iss: env.TEAM_ID, iat: now }));
-		return `${header}.${payload}`;
+		const header = base64url(new TextEncoder().encode(JSON.stringify({ alg: 'ES256', typ: 'JWT', kid: env.PUSH_KEY_ID })));
+		const payload = base64url(new TextEncoder().encode(JSON.stringify({ iss: env.TEAM_ID, iat: now })));
+		const signingInput = `${header}.${payload}`;
+
+		const pkcs8 = pemToArrayBuffer(env.PUSH_PRIVATE_KEY);
+		const key = await crypto.subtle.importKey(
+			'pkcs8',
+			pkcs8,
+			{ name: 'ECDSA', namedCurve: 'P-256' },
+			false,
+			['sign']
+		);
+		const sigBuf = await crypto.subtle.sign(
+			{ name: 'ECDSA', hash: 'SHA-256' },
+			key,
+			new TextEncoder().encode(signingInput)
+		);
+
+		const token = `${signingInput}.${base64url(new Uint8Array(sigBuf))}`;
+		cachedAPNSJWT = { token, iat: now };
+		return token;
 	} catch {
 		return null;
 	}
+}
+
+function base64url(bytes: Uint8Array): string {
+	let str = '';
+	for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+	return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function pemToArrayBuffer(pem: string): ArrayBuffer {
+	const stripped = pem
+		.replace(/-----BEGIN [^-]+-----/g, '')
+		.replace(/-----END [^-]+-----/g, '')
+		.replace(/\s+/g, '');
+	const binary = atob(stripped);
+	const buf = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
+	return buf.buffer;
 }
 
 async function verifyAppleToken(identityToken: string, clientId: string): Promise<string | null> {
@@ -553,18 +610,117 @@ async function handleUserSearch(request: Request, env: Env): Promise<Response> {
 	}
 
 	const exactUser = await env.DB.prepare(
-		'SELECT id, username, avatar_url FROM users WHERE LOWER(username) = LOWER(?) AND id != ?'
-	).bind(q, auth.userId).first<{ id: string; username: string; avatar_url: string | null }>();
+		`SELECT id, username, avatar_url FROM users
+		 WHERE LOWER(username) = LOWER(?) AND id != ?
+		   AND id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)
+		   AND id NOT IN (SELECT user_id FROM blocks WHERE blocked_id = ?)`
+	).bind(q, auth.userId, auth.userId, auth.userId).first<{ id: string; username: string; avatar_url: string | null }>();
 
 	if (exactUser) {
 		return new Response(JSON.stringify([exactUser]), { headers: { ...cors, 'Content-Type': 'application/json' } });
 	}
 
 	const users = await env.DB.prepare(
-		'SELECT id, username, avatar_url FROM users WHERE username LIKE ? AND id != ? LIMIT 20'
-	).bind(q.toLowerCase() + '%', auth.userId).all<{ id: string; username: string; avatar_url: string | null }>();
+		`SELECT id, username, avatar_url FROM users
+		 WHERE username LIKE ? AND id != ?
+		   AND id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)
+		   AND id NOT IN (SELECT user_id FROM blocks WHERE blocked_id = ?)
+		 LIMIT 20`
+	).bind(q.toLowerCase() + '%', auth.userId, auth.userId, auth.userId).all<{ id: string; username: string; avatar_url: string | null }>();
 
 	return new Response(JSON.stringify(users.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleDeleteAccount(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const userId = auth.userId;
+
+	await env.DB.prepare('DELETE FROM message_reads WHERE user_id = ?').bind(userId).run();
+	await env.DB.prepare('DELETE FROM messages WHERE sender_id = ?').bind(userId).run();
+	await env.DB.prepare('DELETE FROM chat_members WHERE user_id = ?').bind(userId).run();
+	await env.DB.prepare(
+		`DELETE FROM chats WHERE id NOT IN (SELECT DISTINCT chat_id FROM chat_members)`
+	).run();
+	await env.DB.prepare('DELETE FROM friends WHERE user_id = ? OR friend_id = ?').bind(userId, userId).run();
+	await env.DB.prepare('DELETE FROM blocks WHERE user_id = ? OR blocked_id = ?').bind(userId, userId).run();
+	await env.DB.prepare('DELETE FROM reports WHERE reporter_id = ? OR reported_user_id = ?').bind(userId, userId).run();
+	await env.DB.prepare('DELETE FROM push_tokens WHERE user_id = ?').bind(userId).run();
+	await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId).run();
+	await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
+
+	return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleBlockUser(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const { blocked_id } = (await request.json()) as { blocked_id: string };
+	if (!blocked_id || blocked_id === auth.userId) {
+		return new Response(JSON.stringify({ error: 'Invalid blocked_id' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	await env.DB.prepare(
+		'INSERT OR IGNORE INTO blocks (id, user_id, blocked_id, created_at) VALUES (?, ?, ?, ?)'
+	).bind(crypto.randomUUID(), auth.userId, blocked_id, Date.now()).run();
+
+	await env.DB.prepare(
+		'DELETE FROM friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)'
+	).bind(auth.userId, blocked_id, blocked_id, auth.userId).run();
+
+	return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleUnblockUser(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const { blocked_id } = (await request.json()) as { blocked_id: string };
+	if (!blocked_id) {
+		return new Response(JSON.stringify({ error: 'blocked_id required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	await env.DB.prepare('DELETE FROM blocks WHERE user_id = ? AND blocked_id = ?').bind(auth.userId, blocked_id).run();
+	return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleListBlocked(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const rows = await env.DB.prepare(
+		`SELECT u.id, u.username, u.avatar_url FROM blocks b
+		 JOIN users u ON u.id = b.blocked_id
+		 WHERE b.user_id = ?`
+	).bind(auth.userId).all<{ id: string; username: string | null; avatar_url: string | null }>();
+
+	return new Response(JSON.stringify(rows.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
+}
+
+async function handleReport(request: Request, env: Env): Promise<Response> {
+	const auth = getAuthUser(request);
+	if (!auth) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+	const body = (await request.json()) as { reported_user_id?: string; message_id?: string; chat_id?: string; reason?: string };
+	if (!body.reported_user_id && !body.message_id) {
+		return new Response(JSON.stringify({ error: 'reported_user_id or message_id required' }), { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } });
+	}
+
+	await env.DB.prepare(
+		'INSERT INTO reports (id, reporter_id, reported_user_id, message_id, chat_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+	).bind(
+		crypto.randomUUID(),
+		auth.userId,
+		body.reported_user_id ?? null,
+		body.message_id ?? null,
+		body.chat_id ?? null,
+		(body.reason ?? '').slice(0, 500),
+		Date.now()
+	).run();
+
+	return new Response(JSON.stringify({ success: true }), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }
 
 async function handleListFriends(request: Request, env: Env): Promise<Response> {
@@ -574,16 +730,20 @@ async function handleListFriends(request: Request, env: Env): Promise<Response> 
 	}
 
 	const friends = await env.DB.prepare(
-		`SELECT u.id, u.username, u.avatar_url 
-		 FROM friends f 
-		 JOIN users u ON u.id = f.friend_id 
+		`SELECT u.id, u.username, u.avatar_url
+		 FROM friends f
+		 JOIN users u ON u.id = f.friend_id
 		 WHERE f.user_id = ?
+		   AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)
+		   AND u.id NOT IN (SELECT user_id FROM blocks WHERE blocked_id = ?)
 		 UNION
-		 SELECT u.id, u.username, u.avatar_url 
-		 FROM friends f 
-		 JOIN users u ON u.id = f.user_id 
-		 WHERE f.friend_id = ?`
-	).bind(auth.userId, auth.userId).all<{ id: string; username: string | null; avatar_url: string | null }>();
+		 SELECT u.id, u.username, u.avatar_url
+		 FROM friends f
+		 JOIN users u ON u.id = f.user_id
+		 WHERE f.friend_id = ?
+		   AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)
+		   AND u.id NOT IN (SELECT user_id FROM blocks WHERE blocked_id = ?)`
+	).bind(auth.userId, auth.userId, auth.userId, auth.userId, auth.userId, auth.userId).all<{ id: string; username: string | null; avatar_url: string | null }>();
 
 	return new Response(JSON.stringify(friends.results || []), { headers: { ...cors, 'Content-Type': 'application/json' } });
 }

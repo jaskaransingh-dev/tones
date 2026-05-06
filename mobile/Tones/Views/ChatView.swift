@@ -18,6 +18,8 @@ struct ChatView: View {
     @State private var showEmptyGreeting = false
     @State private var viewState: ChatViewState = .idle
     @State private var showGroupSettings = false
+    @State private var showReportSheet = false
+    @State private var showBlockConfirm = false
     @Environment(\.dismiss) private var dismiss
 
     private var myId: String { AuthService.shared.currentUser?.id ?? "" }
@@ -120,8 +122,30 @@ struct ChatView: View {
                             .font(.system(size: 17, weight: .medium))
                             .foregroundStyle(Color.warmCoral)
                     }
+                } else if chat.peerId != nil {
+                    Menu {
+                        Button(role: .destructive, action: { showReportSheet = true }) {
+                            Label("Report", systemImage: "exclamationmark.bubble")
+                        }
+                        Button(role: .destructive, action: { showBlockConfirm = true }) {
+                            Label("Block @\(friendName)", systemImage: "hand.raised")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Color.warmCoral)
+                    }
                 }
             }
+        }
+        .alert("Block @\(friendName)?", isPresented: $showBlockConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Block", role: .destructive) { performBlock() }
+        } message: {
+            Text("They won't be able to send you tones or find you in search.")
+        }
+        .sheet(isPresented: $showReportSheet) {
+            ReportUserSheet(targetUserId: chat.peerId ?? "", targetUsername: friendName, chatId: chat.id)
         }
         .sheet(isPresented: $showGroupSettings) {
             GroupSettingsView(viewModel: viewModel, chat: Binding(
@@ -761,6 +785,133 @@ struct ChatView: View {
         } catch {
             print("Sync failed: \(error)")
             return false
+        }
+    }
+
+    private func performBlock() {
+        guard let peerId = chat.peerId else { return }
+        Task {
+            do {
+                try await APIClient.shared.blockUser(peerId)
+                viewModel.deleteChat(chat.id)
+                dismiss()
+            } catch {
+                print("Block failed: \(error)")
+            }
+        }
+    }
+}
+
+struct ReportUserSheet: View {
+    let targetUserId: String
+    let targetUsername: String
+    let chatId: String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var reason: String = ""
+    @State private var selectedCategory: String = "Spam"
+    @State private var isSubmitting = false
+    @State private var error: String?
+    @State private var didSubmit = false
+
+    private let categories = ["Spam", "Harassment or bullying", "Hate speech", "Sexual content", "Threats or violence", "Other"]
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                WarmBackground()
+                if didSubmit {
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 44))
+                            .foregroundStyle(Color.warmCoral)
+                        Text("Report submitted")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(Color.warmDark)
+                        Text("Thanks. Our team will review it within 24 hours.")
+                            .font(.system(size: 13, weight: .light))
+                            .foregroundStyle(Color.warmBrown)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            Text("Report @\(targetUsername)")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(Color.warmDark)
+                            Text("What's going on?")
+                                .font(.system(size: 13, weight: .light))
+                                .foregroundStyle(Color.warmBrown)
+                            VStack(spacing: 8) {
+                                ForEach(categories, id: \.self) { cat in
+                                    Button(action: { selectedCategory = cat }) {
+                                        HStack {
+                                            Text(cat)
+                                                .font(.system(size: 14))
+                                                .foregroundStyle(Color.warmDark)
+                                            Spacer()
+                                            if selectedCategory == cat {
+                                                Image(systemName: "checkmark")
+                                                    .foregroundStyle(Color.warmCoral)
+                                            }
+                                        }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 12)
+                                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.7)))
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                }
+                            }
+                            Text("Additional details (optional)")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color.warmBrown)
+                            TextEditor(text: $reason)
+                                .frame(minHeight: 100)
+                                .padding(8)
+                                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.7)))
+                                .scrollContentBackground(.hidden)
+                            if let error {
+                                Text(error).font(.caption).foregroundStyle(.red)
+                            }
+                            Button(action: submit) {
+                                HStack {
+                                    if isSubmitting { ProgressView().tint(.white) }
+                                    else { Text("submit report").font(.system(size: 16, weight: .semibold)) }
+                                }
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(Color.warmCoral)
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                            }
+                            .disabled(isSubmitting)
+                        }
+                        .padding(20)
+                    }
+                }
+            }
+            .navigationTitle("")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(didSubmit ? "done" : "cancel") { dismiss() }
+                        .foregroundStyle(Color.warmBrown)
+                }
+            }
+        }
+    }
+
+    private func submit() {
+        isSubmitting = true
+        error = nil
+        let combined = "[\(selectedCategory)] \(reason)"
+        Task {
+            do {
+                try await APIClient.shared.reportUser(userId: targetUserId, reason: combined, chatId: chatId, messageId: nil)
+                didSubmit = true
+            } catch {
+                self.error = error.localizedDescription
+            }
+            isSubmitting = false
         }
     }
 }

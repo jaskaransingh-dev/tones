@@ -51,6 +51,51 @@ final class AuthService: ObservableObject {
         currentUser = loginResponse.user
     }
 
+    func signInWithDemoUsername(_ username: String) async throws {
+        isLoading = true
+        authError = nil
+        defer { isLoading = false }
+
+        let cleaned = username.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
+        guard cleaned.count >= 3 else {
+            throw TonesAuthError(message: "Username must be at least 3 characters")
+        }
+
+        let url = baseURL.appendingPathComponent("auth/demo")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["username": cleaned])
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw TonesAuthError(message: "Demo sign-in failed: \(body)")
+        }
+
+        let loginResponse = try JSONDecoder().decode(LoginResponse.self, from: data)
+        try saveSession(loginResponse)
+        currentUser = loginResponse.user
+    }
+
+    func deleteAccount() async throws {
+        guard let token = keychain.getAccessToken() else {
+            throw TonesAuthError(message: "Not authenticated")
+        }
+
+        let url = baseURL.appendingPathComponent("auth/delete")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw TonesAuthError(message: "Account deletion failed")
+        }
+
+        logout()
+    }
+
     func setUsername(_ username: String) async throws {
         guard let token = keychain.getAccessToken() else {
             throw TonesAuthError(message: "Not authenticated")
