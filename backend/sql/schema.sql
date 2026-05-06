@@ -94,3 +94,32 @@ CREATE TABLE IF NOT EXISTS push_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id);
+
+-- Blocks (per Apple Guideline 1.2)
+CREATE TABLE IF NOT EXISTS blocks (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    blocked_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(user_id, blocked_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (blocked_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocks_user ON blocks(user_id);
+CREATE INDEX IF NOT EXISTS idx_blocks_blocked ON blocks(blocked_id);
+
+-- Reports (per Apple Guideline 1.2)
+CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY,
+    reporter_id TEXT NOT NULL,
+    reported_user_id TEXT,
+    message_id TEXT,
+    chat_id TEXT,
+    reason TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (reporter_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_id);
+CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports(reported_user_id);

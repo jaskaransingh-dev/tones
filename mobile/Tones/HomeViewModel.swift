@@ -114,7 +114,7 @@ final class HomeViewModel: ObservableObject {
             }
             return existing
         }
-        let chat = LocalChat(id: chatId, name: friendName, type: "dm")
+        let chat = LocalChat(id: chatId, name: friendName, type: "dm", peerId: friendId)
         storage.addChat(chat)
         chats.insert(chat, at: 0)
         return chat
@@ -159,6 +159,9 @@ final class HomeViewModel: ObservableObject {
                     if let avatarURL = r.peer_avatar_url {
                         merged[idx].peerAvatarURL = avatarURL
                     }
+                    if let pid = r.peer_id {
+                        merged[idx].peerId = pid
+                    }
                     if r.type == "group" {
                         merged[idx].avatarURL = r.avatar_url
                     }
@@ -176,7 +179,7 @@ final class HomeViewModel: ObservableObject {
                     else if let pid = r.peer_id { name = String(pid.prefix(8)) }
                     else { name = r.title ?? "chat" }
                     let localMembers = r.members?.map { LocalChatMember(id: $0.id, username: $0.username, avatarURL: $0.avatar_url) }
-                    let chat = LocalChat(id: r.id, name: name, type: r.type, unreadCount: r.unread_count ?? 0, peerAvatarURL: r.peer_avatar_url, members: localMembers)
+                    let chat = LocalChat(id: r.id, name: name, type: r.type, unreadCount: r.unread_count ?? 0, peerAvatarURL: r.peer_avatar_url, peerId: r.peer_id, members: localMembers)
                     storage.addChat(chat)
                     merged.insert(chat, at: 0)
                 }

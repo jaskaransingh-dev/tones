@@ -607,6 +607,10 @@ struct SettingsSheet: View {
     @State private var showingShare = false
     @State private var showingProfilePicture = false
     @State private var showingPrivacyPolicy = false
+    @State private var showingBlocked = false
+    @State private var showingDeleteConfirm = false
+    @State private var deleteError: String?
+    @State private var isDeleting = false
     @AppStorage("saveRecordings") private var saveRecordings = true
 
     var body: some View {
@@ -711,6 +715,11 @@ struct SettingsSheet: View {
                             .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.7)))
                         }
 
+                        Button(action: { showingBlocked = true }) {
+                            Text("blocked users")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(Color.warmBrown.opacity(0.7))
+                        }
                         Button(action: { showingPrivacyPolicy = true }) {
                             Text("privacy policy")
                                 .font(.system(size: 15, weight: .medium))
@@ -720,6 +729,17 @@ struct SettingsSheet: View {
                             Text("sign out")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(Color.warmCoral)
+                        }
+                        Button(action: { showingDeleteConfirm = true }) {
+                            Text(isDeleting ? "deleting…" : "delete account")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.red)
+                        }
+                        .disabled(isDeleting)
+                        if let deleteError {
+                            Text(deleteError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
                         }
                     }
                     .padding(.horizontal, 32)
@@ -740,6 +760,31 @@ struct SettingsSheet: View {
             .sheet(isPresented: $showingPrivacyPolicy) {
                 PrivacyPolicySheet()
             }
+            .sheet(isPresented: $showingBlocked) {
+                BlockedUsersSheet()
+            }
+            .alert("Delete account?", isPresented: $showingDeleteConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) { deleteAccount() }
+            } message: {
+                Text("This permanently deletes your account, your tones, and your friends list. This cannot be undone.")
+            }
+        }
+    }
+
+    private func deleteAccount() {
+        isDeleting = true
+        deleteError = nil
+        Task {
+            do {
+                try await authService.deleteAccount()
+                dismiss()
+            } catch let e as TonesAuthError {
+                deleteError = e.message
+            } catch {
+                deleteError = error.localizedDescription
+            }
+            isDeleting = false
         }
     }
 
@@ -833,6 +878,85 @@ struct PrivacyPolicySheet: View {
                     Button("close") { dismiss() }
                         .foregroundStyle(Color.warmBrown)
                 }
+            }
+        }
+    }
+}
+
+struct BlockedUsersSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var blocked: [TonesUser] = []
+    @State private var isLoading = true
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                WarmBackground()
+                Group {
+                    if isLoading {
+                        ProgressView().tint(Color.warmCoral)
+                    } else if blocked.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("No blocked users")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(Color.warmDark)
+                            Text("People you block won't be able to message you or appear in search.")
+                                .font(.system(size: 12, weight: .light))
+                                .foregroundStyle(Color.warmBrown)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 40)
+                        }
+                    } else {
+                        List {
+                            ForEach(blocked) { user in
+                                HStack {
+                                    AvatarView(urlString: user.avatarURL, initial: String((user.username ?? "?").prefix(1)).uppercased(), size: 40)
+                                    Text("@\(user.username ?? "user")")
+                                        .font(.system(size: 15))
+                                        .foregroundStyle(Color.warmDark)
+                                    Spacer()
+                                    Button("unblock") { unblock(user) }
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(Color.warmCoral)
+                                }
+                            }
+                        }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                    }
+                }
+                if let error {
+                    VStack { Spacer(); Text(error).foregroundStyle(.red).font(.caption).padding() }
+                }
+            }
+            .navigationTitle("Blocked")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("close") { dismiss() }.foregroundStyle(Color.warmBrown)
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        do {
+            blocked = try await APIClient.shared.listBlockedUsers()
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    private func unblock(_ user: TonesUser) {
+        Task {
+            do {
+                try await APIClient.shared.unblockUser(user.id)
+                blocked.removeAll { $0.id == user.id }
+            } catch {
+                self.error = error.localizedDescription
             }
         }
     }

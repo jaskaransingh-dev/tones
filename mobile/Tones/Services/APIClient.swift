@@ -164,6 +164,47 @@ final class APIClient {
         return result.avatar_url
     }
 
+    func blockUser(_ userId: String) async throws {
+        let url = baseURL.appendingPathComponent("users/block")
+        var req = authedReq(url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["blocked_id": userId])
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+    }
+
+    func unblockUser(_ userId: String) async throws {
+        let url = baseURL.appendingPathComponent("users/unblock")
+        var req = authedReq(url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["blocked_id": userId])
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+    }
+
+    func listBlockedUsers() async throws -> [TonesUser] {
+        let url = baseURL.appendingPathComponent("users/blocked")
+        let req = authedReq(url)
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+        return try JSONDecoder().decode([TonesUser].self, from: data)
+    }
+
+    func reportUser(userId: String, reason: String, chatId: String? = nil, messageId: String? = nil) async throws {
+        let url = baseURL.appendingPathComponent("reports")
+        var req = authedReq(url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["reported_user_id": userId, "reason": reason]
+        if let chatId { body["chat_id"] = chatId }
+        if let messageId { body["message_id"] = messageId }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp) = try await session.data(for: req)
+        try validate(resp: resp, data: data)
+    }
+
     private func validate(resp: URLResponse, data: Data) throws {
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
